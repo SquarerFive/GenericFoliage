@@ -18,27 +18,27 @@ UFoliageCaptureComponent::UFoliageCaptureComponent()
 	// off to improve performance if you don't need them.
 	PrimaryComponentTick.bCanEverTick = true;
 
-	
+
 	bWantsInitializeComponent = true;
 	bAutoRegister = true;
 
 	// ...
 
-	
+
 	PointCloudComponent = CreateDefaultSubobject<ULidarPointCloudComponent>("_LidarPointCloud");
 	PointCloudComponent->SetupAttachment(this);
 	PointCloudComponent->SetRelativeRotation(FRotator(0, 90, 90));
 	PointCloudComponent->PointSize = 0;
-	
 
-	Diameter =  2.0 * 100000.0;
-	
+
+	Diameter = 2.0 * 100000.0;
+
 	//
-	
+
 	// SceneColourCapture = CreateDefaultSubobject<USceneCaptureComponent2D>(CreateComponentName(TEXT("SceneColourCapture")));
 	SceneColourCapture = CreateDefaultSubobject<USceneCaptureComponent2D>("_SceneColourCapture");
 	SceneColourCapture->ProjectionType = ECameraProjectionMode::Orthographic;
-	SceneColourCapture->CaptureSource = ESceneCaptureSource::SCS_Normal;
+	SceneColourCapture->CaptureSource = ESceneCaptureSource::SCS_BaseColor;
 	SceneColourCapture->OrthoWidth = Diameter; // km
 	SceneColourCapture->bCaptureEveryFrame = false;
 	SceneColourCapture->bCaptureOnMovement = false;
@@ -52,10 +52,19 @@ UFoliageCaptureComponent::UFoliageCaptureComponent()
 	SceneDepthCapture->OrthoWidth = Diameter; // km
 	SceneDepthCapture->bCaptureEveryFrame = false;
 	SceneDepthCapture->bCaptureOnMovement = false;
-	
+
 
 	SceneDepthCapture->SetupAttachment(this);
-	
+
+	SceneNormalCapture = CreateDefaultSubobject<USceneCaptureComponent2D>("_SceneNormalCapture");
+	SceneNormalCapture->ProjectionType = ECameraProjectionMode::Orthographic;
+	SceneNormalCapture->CaptureSource = ESceneCaptureSource::SCS_Normal;
+	SceneNormalCapture->OrthoWidth = Diameter; // km
+	SceneNormalCapture->bCaptureEveryFrame = false;
+	SceneNormalCapture->bCaptureOnMovement = false;
+
+	SceneNormalCapture->SetupAttachment(this);
+
 	if (!bIsUsingSharedResources)
 	{
 		SetupTextureTargets();
@@ -73,14 +82,16 @@ void UFoliageCaptureComponent::Compute()
 {
 	ensure(IsInGameThread());
 	ensure(bReadyToUpdate);
-	
+
 	bReadyToUpdate = false;
 
 	UTextureRenderTarget2D* SceneColourRT_Target2D = SceneColourRT;
 	UTextureRenderTarget2D* SceneDepthRT_Target2D = SceneDepthRT;
+	UTextureRenderTarget2D* SceneNormalRT_Target2D = SceneNormalRT;
 
 	ENQUEUE_RENDER_COMMAND(FReadRenderTargets)(
-		[this, SceneColourRT_Target2D, SceneDepthRT_Target2D](FRHICommandListImmediate& RHICmdList)
+		[this, SceneColourRT_Target2D, SceneDepthRT_Target2D, SceneNormalRT_Target2D](
+		FRHICommandListImmediate& RHICmdList)
 		{
 			if (!IsValid(SceneColourRT_Target2D) || !IsValid(SceneDepthRT_Target2D))
 			{
@@ -95,51 +106,60 @@ void UFoliageCaptureComponent::Compute()
 			}
 
 			FRHITexture2D* SceneColourRHI = SceneColourRT_Target2D->GetRenderTargetResource()->
-			                                                                GetTexture2DRHI();
-			FUnorderedAccessViewRHIRef SceneDepthUAVRef = SceneDepthRT_Target2D->GetRenderTargetResource()->GetTextureRenderTarget2DResource()->GetUnorderedAccessViewRHI();
+			                                                        GetTexture2DRHI();
+			FRHITexture2D* SceneNormalRHI = SceneNormalRT_Target2D->GetRenderTargetResource()->GetTexture2DRHI();
 
 			TArray<FLinearColor> SceneColourData;
-
-
-			RHICmdList.ReadSurfaceData(
-				SceneColourRHI,
-				FIntRect(0, 0, SceneColourRT_Target2D->SizeX, SceneColourRT_Target2D->SizeY),
-				SceneColourData,
-				FReadSurfaceDataFlags{ERangeCompressionMode::RCM_MinMaxNorm}
-			);
-
-			
-			TArray<FColor> SceneDepthData;
+			TArray<FLinearColor> SceneNormalData;
 
 			// Get our shader
-			
-			FGenericFoliageComputeModule& ComputeModule = FModuleManager::GetModuleChecked<FGenericFoliageComputeModule>(TEXT("GenericFoliageCompute"));
+			FGenericFoliageComputeModule& ComputeModule = FModuleManager::GetModuleChecked<
+				FGenericFoliageComputeModule>(TEXT("GenericFoliageCompute"));
 
-			
-			/*
-			RHICmdList.ReadSurfaceData(
-				SceneDepthRHI,
-				FIntRect(0, 0, SceneColourRT_Target2D->SizeX, SceneColourRT_Target2D->SizeY),
-				SceneDepthData,
-				FReadSurfaceDataFlags{ERangeCompressionMode::RCM_MinMax}
-			);
-			*/
-			
+			// If we support using ReadSurfaceData, then call it as it is slightly faster. otherwise call the CS
+			if (SceneColourRHI->GetFormat() == EPixelFormat::PF_B8G8R8A8)
+			{
+				RHICmdList.ReadSurfaceData(
+					SceneColourRHI,
+					FIntRect(0, 0, SceneColourRT_Target2D->SizeX, SceneColourRT_Target2D->SizeY),
+					SceneColourData,
+					FReadSurfaceDataFlags{ERangeCompressionMode::RCM_MinMaxNorm}
+				);
+			}
+			else
+			{
+				ComputeModule.CopyRenderTargetToCpu(RHICmdList, SceneColourRT_Target2D, SceneColourData);
+			}
+
+			if (SceneNormalRHI->GetFormat() == EPixelFormat::PF_B8G8R8A8)
+			{
+				RHICmdList.ReadSurfaceData(
+					SceneNormalRHI,
+					FIntRect(0, 0, SceneNormalRHI->GetSizeX(), SceneNormalRHI->GetSizeY()),
+					SceneNormalData,
+					FReadSurfaceDataFlags{ERangeCompressionMode::RCM_MinMaxNorm}
+				);
+			}
+			else
+			{
+				ComputeModule.CopyRenderTargetToCpu(RHICmdList, SceneNormalRT_Target2D, SceneNormalData);
+			}
+
 			TArray<float> SceneDepthValues;
 
 			ComputeModule.CopyRenderTargetToCpu(RHICmdList, SceneDepthRT_Target2D, SceneDepthValues);
-			
+
 			int32 Width = SceneColourRT_Target2D->SizeX, Height = SceneDepthRT_Target2D->SizeY;
-			
+
 			AsyncTask(ENamedThreads::GameThread, [this, Width, Height, SceneColourData, SceneDepthValues]()
 			{
 				FVector Right = GetRightVector();
 				FVector Forward = GetForwardVector();
 				const double ZoneWidth = Diameter / 2.0;
 				Compute_Internal(SceneColourData, SceneDepthValues, Width, Height, FBox(
-					(GetComponentLocation() - (Right * ZoneWidth)) - (Forward * ZoneWidth),
-					(GetComponentLocation() + (Right * ZoneWidth)) + (Forward * ZoneWidth)
-				));
+					                 (GetComponentLocation() - (Right * ZoneWidth)) - (Forward * ZoneWidth),
+					                 (GetComponentLocation() + (Right * ZoneWidth)) + (Forward * ZoneWidth)
+				                 ));
 			});
 		}
 
@@ -158,7 +178,7 @@ void UFoliageCaptureComponent::BeginPlay()
 void UFoliageCaptureComponent::InitializeComponent()
 {
 	Super::InitializeComponent();
-	UE_LOG(LogGenericFoliage, Display,  TEXT("Initializing component"));
+	UE_LOG(LogGenericFoliage, Display, TEXT("Initializing component"));
 }
 
 
@@ -172,14 +192,17 @@ void UFoliageCaptureComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 }
 
 void UFoliageCaptureComponent::PrepareForCapture(UTextureRenderTarget2D* InSceneColourRT,
+                                                 UTextureRenderTarget2D* InSceneNormalRT,
                                                  UTextureRenderTarget2D* InSceneDepthRT)
 {
 	if (bIsUsingSharedResources)
 	{
 		SceneColourRT = InSceneColourRT;
+		SceneNormalRT = InSceneNormalRT;
 		SceneDepthRT = InSceneDepthRT;
 
 		SceneColourCapture->TextureTarget = InSceneColourRT;
+		SceneNormalCapture->TextureTarget = InSceneNormalRT;
 		SceneDepthCapture->TextureTarget = InSceneDepthRT;
 	}
 }
@@ -187,6 +210,7 @@ void UFoliageCaptureComponent::PrepareForCapture(UTextureRenderTarget2D* InScene
 void UFoliageCaptureComponent::Capture()
 {
 	SceneColourCapture->CaptureScene();
+	SceneNormalCapture->CaptureScene();
 	SceneDepthCapture->CaptureScene();
 }
 
@@ -195,8 +219,10 @@ void UFoliageCaptureComponent::Finish()
 	if (bIsUsingSharedResources)
 	{
 		SceneColourRT = nullptr;
+		SceneNormalRT = nullptr;
 		SceneDepthRT = nullptr;
 		SceneColourCapture->TextureTarget = nullptr;
+		SceneNormalCapture->TextureTarget = nullptr;
 		SceneDepthCapture->TextureTarget = nullptr;
 	}
 }
@@ -209,14 +235,20 @@ void UFoliageCaptureComponent::SetupTextureTargets()
 	SceneColourRT->InitCustomFormat(512, 512, EPixelFormat::PF_B8G8R8A8, true);
 	SceneColourRT->RenderTargetFormat = RTF_RGBA8;
 	SceneColourRT->UpdateResourceImmediate(true);
-	
+
 	SceneDepthRT = NewObject<UTextureRenderTarget2D>(this, CreateComponentName(TEXT("SceneDepthRT")), RF_Transient);
 	check(SceneDepthRT);
 
-	// SceneDepthRT->InitCustomFormat(512, 512, EPixelFormat::PF_A32B32G32R32F, true);
 	SceneDepthRT->RenderTargetFormat = RTF_R32f;
 	SceneDepthRT->InitAutoFormat(512, 512);
 	SceneDepthRT->UpdateResourceImmediate(true);
+
+	SceneNormalRT = NewObject<UTextureRenderTarget2D>(this, "SceneNormalRT", RF_Transient);
+	check(SceneNormalRT);
+
+	SceneNormalRT->InitCustomFormat(512, 512, EPixelFormat::PF_B8G8R8A8, true);
+	SceneNormalRT->RenderTargetFormat = RTF_RGBA8;
+	SceneNormalRT->UpdateResourceImmediate(true);
 }
 
 bool UFoliageCaptureComponent::IsReadyToUpdate() const
@@ -228,7 +260,8 @@ ULidarPointCloudComponent* UFoliageCaptureComponent::ResolvePointCloudComponent(
 {
 	if (!IsValid(PointCloudComponent->GetPointCloud()))
 	{
-		PointCloud = NewObject<ULidarPointCloud>(this, CreateComponentName("PointCloudAsset"), RF_Transient | RF_DuplicateTransient);
+		PointCloud = NewObject<ULidarPointCloud>(this, CreateComponentName("PointCloudAsset"),
+		                                         RF_Transient | RF_DuplicateTransient);
 		PointCloudComponent->SetPointCloud(PointCloud);
 		PointCloudComponent->GetPointCloud()->SetOptimizedForDynamicData(true);
 	}
@@ -246,15 +279,16 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 	}
 
 	ResolvePointCloudComponent();
-	PointCloud->Initialize(FBox(FVector(-Diameter/2.0, -Diameter/2.0, -100000.0), FVector(Diameter/2.0, Diameter/2.0, 100000.0)));
-	
+	PointCloud->Initialize(FBox(FVector(-Diameter / 2.0, -Diameter / 2.0, -100000.0),
+	                            FVector(Diameter / 2.0, Diameter / 2.0, 100000.0)));
+
 	Viz_Points.Reset(0);
-	
+
 	AGenericFoliageActor* Parent = Cast<AGenericFoliageActor>(GetOwner());
 	check(IsValid(Parent));
-	
+
 	Viz_Points.SetNumUninitialized(Width * Height);
-	
+
 	for (int32 y = 0; y < Height; ++y)
 	{
 		for (int32 x = 0; x < Width; ++x)
@@ -265,17 +299,17 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 			if (SceneDepthData.IsValidIndex(i))
 			{
 				Depth = SceneDepthData[i];
-			//	UE_LOG(LogTemp, Display, TEXT("Depth: %f %f"), Depth, FMath::Lerp(SceneDepthCapture->GetRelativeLocation().Z, 0, Depth));
+				//	UE_LOG(LogTemp, Display, TEXT("Depth: %f %f"), Depth, FMath::Lerp(SceneDepthCapture->GetRelativeLocation().Z, 0, Depth));
 			}
-			
+
 			FVector RelativePosition = FVector(
-				FMath::Lerp(-Diameter/2.0, Diameter/2.0, static_cast<double>(x) / static_cast<double>(Width)),
-				FMath::Lerp(-Diameter/2.0, Diameter/2.0, static_cast<double>(y) / static_cast<double>(Height)),
+				FMath::Lerp(-Diameter / 2.0, Diameter / 2.0, static_cast<double>(x) / static_cast<double>(Width)),
+				FMath::Lerp(-Diameter / 2.0, Diameter / 2.0, static_cast<double>(y) / static_cast<double>(Height)),
 				-Depth
 			);
-			
+
 			FVector WorldPosition = GetComponentTransform().TransformPosition(RelativePosition);
-			
+
 			const FLinearColor& Data = SceneColourData[i] * 15.0;
 
 			Viz_Points[i] = FLidarPointCloudPoint(
@@ -284,11 +318,12 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 			);
 		}
 	}
-	
+
 	// PointCloud->InsertPoints(Viz_Points, ELidarPointCloudDuplicateHandling::Ignore, false, FVector::ZeroVector);
 
 	//PointCloud->RefreshBounds();
-	PointCloud->InsertPoints_NoLock(Viz_Points.GetData(), Viz_Points.Num(), ELidarPointCloudDuplicateHandling::Ignore, false, FVector::ZeroVector);
+	PointCloud->InsertPoints_NoLock(Viz_Points.GetData(), Viz_Points.Num(), ELidarPointCloudDuplicateHandling::Ignore,
+	                                false, FVector::ZeroVector);
 	bReadyToUpdate = true;
 }
 

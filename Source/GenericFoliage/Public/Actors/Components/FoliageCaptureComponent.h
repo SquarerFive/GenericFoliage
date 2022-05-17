@@ -32,8 +32,9 @@ public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 	void PrepareForCapture(
-	UTextureRenderTarget2D* InSceneColourRT,
-	UTextureRenderTarget2D* InSceneDepthRT
+		UTextureRenderTarget2D* InSceneColourRT,
+		UTextureRenderTarget2D* InSceneNormalRT,
+		UTextureRenderTarget2D* InSceneDepthRT
 	);
 	
 	void Capture();
@@ -56,19 +57,25 @@ public:
 	UPROPERTY(VisibleAnywhere, Category = "ProceduralFoliage")
 	AActor* Projection;
 
-	UPROPERTY(Transient, DuplicateTransient)
+	UPROPERTY(Transient)
 	USceneCaptureComponent2D* SceneColourCapture;
 	
-	UPROPERTY(Transient, DuplicateTransient)
+	UPROPERTY(Transient)
 	USceneCaptureComponent2D* SceneDepthCapture;
 	
-	UPROPERTY(Transient, DuplicateTransient)
+	UPROPERTY(Transient)
+	USceneCaptureComponent2D* SceneNormalCapture;
+	
+	UPROPERTY(Transient)
 	UTextureRenderTarget2D* SceneColourRT;
 	
-	UPROPERTY(Transient, DuplicateTransient)
+	UPROPERTY(Transient)
 	UTextureRenderTarget2D* SceneDepthRT;
+	
+	UPROPERTY(Transient)
+	UTextureRenderTarget2D* SceneNormalRT;
 
-	UPROPERTY(Transient, DuplicateTransient)
+	UPROPERTY(Transient)
 	ULidarPointCloudComponent* PointCloudComponent;
 
 	UPROPERTY()

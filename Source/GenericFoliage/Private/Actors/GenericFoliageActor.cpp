@@ -28,16 +28,10 @@ AGenericFoliageActor::AGenericFoliageActor()
 	{
 		for (int y = -1; y <= 1; ++y)
 		{
-			/*
-			UFoliageCaptureComponent* FoliageCaptureComponent = 
-				Cast<UFoliageCaptureComponent>(AddComponentByClass(UFoliageCaptureComponent::StaticClass(), true, FTransform::Identity, false));
-				*/
 			UFoliageCaptureComponent* FoliageCaptureComponent = CreateDefaultSubobject<UFoliageCaptureComponent>(
 				FName(FString::Printf(TEXT("%i%i_FoliageCapture"), x, y)), true);
 			FoliageCaptureComponent->TileID = {x, y};
 			FoliageCaptureComponent->SetupAttachment(GetRootComponent());
-
-			// FoliageCaptureComponents.Add(FoliageCaptureComponent);
 		}
 	}
 
@@ -114,7 +108,7 @@ void AGenericFoliageActor::Tick(float DeltaTime)
 
 							CaptureComponent->SetWorldLocation(TilePosition);
 
-							CaptureComponent->PrepareForCapture(SceneColourRT, SceneDepthRT);
+							CaptureComponent->PrepareForCapture(SceneColourRT, SceneNormalRT, SceneDepthRT);
 							CaptureComponent->Capture();
 							CaptureComponent->Compute();
 							CaptureComponent->Finish();
@@ -189,11 +183,17 @@ void AGenericFoliageActor::SetupTextureTargets()
 
 		SceneDepthRT = NewObject<UTextureRenderTarget2D>(this, "SceneDepthRT", RF_Transient);
 		check(SceneDepthRT);
-
-		// SceneDepthRT->InitCustomFormat(512, 512, EPixelFormat::PF_A32B32G32R32F, true);
+		
 		SceneDepthRT->RenderTargetFormat = RTF_R32f;
 		SceneDepthRT->InitAutoFormat(512, 512);
 		SceneDepthRT->UpdateResourceImmediate(true);
+		
+		SceneNormalRT = NewObject<UTextureRenderTarget2D>(this, "SceneNormalRT", RF_Transient);
+		check(SceneNormalRT);
+
+		SceneNormalRT->InitCustomFormat(512, 512, EPixelFormat::PF_B8G8R8A8, true);
+		SceneNormalRT->RenderTargetFormat = RTF_RGBA8;
+		SceneNormalRT->UpdateResourceImmediate(true);
 	}
 }
 

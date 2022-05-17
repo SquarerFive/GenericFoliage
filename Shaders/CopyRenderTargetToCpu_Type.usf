@@ -1,0 +1,22 @@
+#include "/Engine/Public/Platform.ush"
+
+#ifndef PIXEL_DATA_TYPE
+    #define PIXEL_DATA_TYPE float
+#endif
+
+Texture2D<PIXEL_DATA_TYPE> InRenderTarget;
+uint2 InRenderTargetDimensions;
+
+RWBuffer<PIXEL_DATA_TYPE> OutRenderTargetData;
+
+[numthreads(32, 32, 1)]
+void main(uint3 ThreadId : SV_DispatchThreadID) {
+    if (ThreadId.x >= InRenderTargetDimensions.x || ThreadId.y >= InRenderTargetDimensions.y) {
+        // don't wanna attempt to load any pixels outside of the texture
+        return;
+    }
+
+    OutRenderTargetData[
+        ThreadId.y * InRenderTargetDimensions.x + ThreadId.x
+    ] = InRenderTarget.Load(int3(ThreadId.x, ThreadId.y, 0));
+}

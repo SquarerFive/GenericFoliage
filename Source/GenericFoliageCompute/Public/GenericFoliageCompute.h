@@ -17,4 +17,6 @@ public:
 	virtual void ShutdownModule() override;
 
 	void CopyRenderTargetToCpu(FRHICommandListImmediate& RHICmdList, UTextureRenderTarget2D* InRenderTarget, TArray<float>& OutData);
+	void CopyRenderTargetToCpu(FRHICommandListImmediate& RHICmdList, UTextureRenderTarget2D* InRenderTarget, TArray<FVector4f>& OutData);
+	void CopyRenderTargetToCpu(FRHICommandListImmediate& RHICmdList, UTextureRenderTarget2D* InRenderTarget, TArray<FLinearColor>& OutData);
 };

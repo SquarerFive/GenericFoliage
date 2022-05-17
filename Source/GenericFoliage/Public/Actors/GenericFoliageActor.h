@@ -48,6 +48,9 @@ private:
 	UPROPERTY(VisibleAnywhere, Transient, Category = "ProceduralFoliage")
 	UTextureRenderTarget2D* SceneDepthRT;
 
+	UPROPERTY(VisibleAnywhere, Transient, Category = "ProceduralFoliage")
+	UTextureRenderTarget2D* SceneNormalRT;
+
 	float UpdateFrequency = 0.2f;
 	float UpdateTime = 0.f;
 

@@ -3,6 +3,7 @@
 #include "GenericFoliageCompute.h"
 
 #include "Compute/CopyRenderTargetToCpu.h"
+#include "Compute/CopyRenderTargetToCpu_Base.h"
 #include "Interfaces/IPluginManager.h"
 
 #define LOCTEXT_NAMESPACE "FGenericFoliageComputeModule"
@@ -30,11 +31,32 @@ void FGenericFoliageComputeModule::ShutdownModule()
 void FGenericFoliageComputeModule::CopyRenderTargetToCpu(FRHICommandListImmediate& RHICmdList,
 	UTextureRenderTarget2D* InRenderTarget, TArray<float>& OutData)
 {
-	TShaderMapRef<FCopyRenderTargetToCpu> Shader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+	check(IsInRenderingThread());
+	
+	TShaderMapRef<FCopyRenderTargetToCpu_float> Shader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
 	check(Shader.IsValid());
 	Shader->Compute(RHICmdList, InRenderTarget, OutData);
 }
 
+void FGenericFoliageComputeModule::CopyRenderTargetToCpu(FRHICommandListImmediate& RHICmdList,
+	UTextureRenderTarget2D* InRenderTarget, TArray<FVector4f>& OutData)
+{
+	check(IsInRenderingThread());
+	
+	TShaderMapRef<FCopyRenderTargetToCpu_FVector4f> Shader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+	check(Shader.IsValid());
+	Shader->Compute(RHICmdList, InRenderTarget, OutData);
+}
+
+void FGenericFoliageComputeModule::CopyRenderTargetToCpu(FRHICommandListImmediate& RHICmdList,
+	UTextureRenderTarget2D* InRenderTarget, TArray<FLinearColor>& OutData)
+{
+	check(IsInRenderingThread());
+	
+	TShaderMapRef<FCopyRenderTargetToCpu_FLinearColor> Shader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+	check(Shader.IsValid());
+	Shader->Compute(RHICmdList, InRenderTarget, OutData);
+}
 #undef LOCTEXT_NAMESPACE
 	
 IMPLEMENT_MODULE(FGenericFoliageComputeModule, GenericFoliageCompute)

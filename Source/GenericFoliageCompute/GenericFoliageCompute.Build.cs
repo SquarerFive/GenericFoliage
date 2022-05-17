@@ -58,5 +58,7 @@ public class GenericFoliageCompute : ModuleRules
 		{
 			PrivateDependencyModuleNames.Add("UnrealEd");
 		}
+
+		// CppStandard = CppStandardVersion.Cpp17;
 	}
 }
