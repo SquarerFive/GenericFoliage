@@ -33,6 +33,38 @@ public:
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 
+private:
+	void GetCameraInfo(FVector& Location, FRotator& Rotation, bool& bSuccess) const;
+
+	bool IsReadyToUpdate() const;
+	
+	void SetupTextureTargets();
+
+	void RebuildInstancedMeshPool();
+
+	TArray<UFoliageCaptureComponent*> GetFoliageCaptureComponents() const;
+
+public:
+
+	void EnqueueTickTask(TFunction<void()>&& InFunc);
+	
+	/** Transforms */
+
+	/** Transforms in-game world coordinates to a local frame of reference */
+	virtual FVector WorldToLocalPosition(const FVector& InWorldLocation) const;
+
+	/** Transforms local to in-game world coordinates. */
+	virtual FVector LocalToWorldPosition(const FVector& InLocalLocation) const;
+	
+	virtual FRotator CalculateEastNorthUp(const FVector& InWorldLocation) const;
+
+	/** Snaps the world coordinate to be above the surface at a specific height */
+	virtual FVector AdjustWorldPositionHeightToPlanet(const FVector& InWorldLocation, const double& Height) const;
+
+	/** Sets the capture components to only capture these specific actors */
+	virtual void SetShowOnlyActors(TArray<AActor*> InShowOnlyActors);
+
+#pragma region Properties
 public:
 	UPROPERTY(EditAnywhere, Category = "ProceduralFoliage")
 	TArray<UGenericFoliageType*> FoliageTypes;
@@ -60,34 +92,7 @@ private:
 	float UpdateTime = 0.f;
 
 private:
-	void GetCameraInfo(FVector& Location, FRotator& Rotation, bool& bSuccess) const;
-
-	bool IsReadyToUpdate() const;
-	
-	void SetupTextureTargets();
-
-	void RebuildInstancedMeshPool();
-
-	TArray<UFoliageCaptureComponent*> GetFoliageCaptureComponents() const;
-
-public:
-	/** Transforms */
-
-	/** Transforms in-game world coordinates to a local frame of reference */
-	virtual FVector WorldToLocalPosition(const FVector& InWorldLocation) const;
-
-	/** Transforms local to in-game world coordinates. */
-	virtual FVector LocalToWorldPosition(const FVector& InLocalLocation) const;
-	
-	virtual FRotator CalculateEastNorthUp(const FVector& InWorldLocation) const;
-
-	/** Snaps the world coordinate to be above the surface at a specific height */
-	virtual FVector AdjustWorldPositionHeightToPlanet(const FVector& InWorldLocation, const double& Height) const;
-
-	/** Sets the capture components to only capture these specific actors */
-	virtual void SetShowOnlyActors(TArray<AActor*> InShowOnlyActors);
-
-private:
 	bool bUsingSharedResources = true;
 	TArray<TFunction<void()>> TickQueue;
+#pragma endregion 
 };

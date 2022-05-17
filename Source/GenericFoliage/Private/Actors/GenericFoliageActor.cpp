@@ -34,6 +34,15 @@ AGenericFoliageActor::AGenericFoliageActor()
 
 			UFoliageInstancedMeshPool* InstancedMeshPool = CreateDefaultSubobject<UFoliageInstancedMeshPool>(
 				FName(FString::Printf(TEXT("%i%i_FoliageISMPool"), x, y)), true);
+
+			// only enable collision on the nearest tile to the camera
+			if (x == 0 && y == 0)
+			{
+				InstancedMeshPool->bEnableCollision = true;
+			} else
+			{
+				InstancedMeshPool->bEnableCollision = false;
+			}
 			
 			TileInstancedMeshPools.Add(FIntPoint(x, y), InstancedMeshPool);
 		}
@@ -215,9 +224,11 @@ void AGenericFoliageActor::SetupTextureTargets()
 
 		SceneNormalRT = NewObject<UTextureRenderTarget2D>(this, "SceneNormalRT", RF_Transient);
 		check(SceneNormalRT);
-
-		SceneNormalRT->InitCustomFormat(512, 512, EPixelFormat::PF_B8G8R8A8, true);
+		
 		SceneNormalRT->RenderTargetFormat = RTF_RGBA8;
+		SceneNormalRT->SRGB = true;
+		SceneNormalRT->LODGroup = TextureGroup::TEXTUREGROUP_WorldNormalMap;
+		SceneNormalRT->InitAutoFormat(512, 512);
 		SceneNormalRT->UpdateResourceImmediate(true);
 	}
 }
@@ -248,6 +259,11 @@ TArray<UFoliageCaptureComponent*> AGenericFoliageActor::GetFoliageCaptureCompone
 		Result.Add(Cast<UFoliageCaptureComponent>(Comp));
 	}
 	return Result;
+}
+
+void AGenericFoliageActor::EnqueueTickTask(TFunction<void()>&& InFunc)
+{
+	TickQueue.Emplace(InFunc);
 }
 
 FVector AGenericFoliageActor::WorldToLocalPosition(const FVector& InWorldLocation) const

@@ -58,8 +58,15 @@ void UFoliageInstancedMeshPool::RebuildHISMPool(const TArray<UGenericFoliageType
 		HISM->AttachToComponent(GetOwner()->GetRootComponent(), FAttachmentTransformRules {EAttachmentRule::KeepWorld, false});
 		HISM->ClearInstances();
 		HISM->SetStaticMesh(FoliageType->FoliageMesh);
-		HISM->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		HISM->bDisableCollision = true;
+		HISM->SetCullDistances(FoliageType->CullingDistanceRange.Min, FoliageType->CullingDistanceRange.Max);
+		
+		if (!bEnableCollision || FoliageType->IsCollisionEnabled.GetValue() == ECollisionEnabled::NoCollision)
+		{
+			HISM->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			HISM->bDisableCollision = true;
+		} else {
+			HISM->SetCollisionEnabled(FoliageType->IsCollisionEnabled);
+		}
 		HISM->RegisterComponent();
 		
 		HISMPool.Add(FoliageType->GetGuid(), HISM);

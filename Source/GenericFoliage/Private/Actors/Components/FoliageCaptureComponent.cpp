@@ -10,6 +10,7 @@
 #include "Actors/GenericFoliageActor.h"
 #include "Async/Async.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
+#include "Kismet/KismetMathLibrary.h"
 #include "Kismet/KismetRenderingLibrary.h"
 
 // Sets default values for this component's properties
@@ -25,12 +26,12 @@ UFoliageCaptureComponent::UFoliageCaptureComponent()
 
 	// ...
 
-
+	/*
 	PointCloudComponent = CreateDefaultSubobject<ULidarPointCloudComponent>("_LidarPointCloud");
 	PointCloudComponent->SetupAttachment(this);
 	PointCloudComponent->SetRelativeRotation(FRotator(0, 90, 90));
 	PointCloudComponent->PointSize = 0;
-
+	*/
 
 	Diameter = 2.0 * 100000.0;
 
@@ -132,19 +133,12 @@ void UFoliageCaptureComponent::Compute()
 				ComputeModule.CopyRenderTargetToCpu(RHICmdList, SceneColourRT_Target2D, SceneColourData);
 			}
 
-			if (SceneNormalRHI->GetFormat() == EPixelFormat::PF_B8G8R8A8)
-			{
-				RHICmdList.ReadSurfaceData(
-					SceneNormalRHI,
-					FIntRect(0, 0, SceneNormalRHI->GetSizeX(), SceneNormalRHI->GetSizeY()),
-					SceneNormalData,
-					FReadSurfaceDataFlags{ERangeCompressionMode::RCM_MinMaxNorm}
-				);
-			}
-			else
-			{
-				ComputeModule.CopyRenderTargetToCpu(RHICmdList, SceneNormalRT_Target2D, SceneNormalData);
-			}
+			RHICmdList.ReadSurfaceData(
+				SceneNormalRHI,
+				FIntRect(0, 0, SceneNormalRHI->GetSizeX(), SceneNormalRHI->GetSizeY()),
+				SceneNormalData,
+				FReadSurfaceDataFlags{ERangeCompressionMode::RCM_MinMaxNorm}
+			);
 
 			TArray<float> SceneDepthValues;
 
@@ -152,16 +146,20 @@ void UFoliageCaptureComponent::Compute()
 
 			int32 Width = SceneColourRT_Target2D->SizeX, Height = SceneDepthRT_Target2D->SizeY;
 
-			AsyncTask(ENamedThreads::GameThread, [this, Width, Height, SceneColourData, SceneDepthValues]()
-			{
-				FVector Right = GetRightVector();
-				FVector Forward = GetForwardVector();
-				const double ZoneWidth = Diameter / 2.0;
-				Compute_Internal(SceneColourData, SceneDepthValues, Width, Height, FBox(
-					                 (GetComponentLocation() - (Right * ZoneWidth)) - (Forward * ZoneWidth),
-					                 (GetComponentLocation() + (Right * ZoneWidth)) + (Forward * ZoneWidth)
-				                 ));
-			});
+			AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [
+				          this, Width, Height,
+				          SceneColourData = MoveTemp(SceneColourData),
+				          SceneNormalData = MoveTemp(SceneNormalData),
+				          SceneDepthValues = MoveTemp(SceneDepthValues)]()
+			          {
+				          FVector Right = GetRightVector();
+				          FVector Forward = GetForwardVector();
+				          const double ZoneWidth = Diameter / 2.0;
+				          Compute_Internal(SceneColourData, SceneNormalData, SceneDepthValues, Width, Height, FBox(
+					                           (GetComponentLocation() - (Right * ZoneWidth)) - (Forward * ZoneWidth),
+					                           (GetComponentLocation() + (Right * ZoneWidth)) + (Forward * ZoneWidth)
+				                           ));
+			          });
 		}
 
 	);
@@ -247,8 +245,8 @@ void UFoliageCaptureComponent::SetupTextureTargets()
 	SceneNormalRT = NewObject<UTextureRenderTarget2D>(this, "SceneNormalRT", RF_Transient);
 	check(SceneNormalRT);
 
-	SceneNormalRT->InitCustomFormat(512, 512, EPixelFormat::PF_B8G8R8A8, true);
-	SceneNormalRT->RenderTargetFormat = RTF_RGBA8;
+	SceneNormalRT->RenderTargetFormat = RTF_RGBA16f;
+	SceneNormalRT->InitAutoFormat(512, 512);
 	SceneNormalRT->UpdateResourceImmediate(true);
 }
 
@@ -270,6 +268,7 @@ ULidarPointCloudComponent* UFoliageCaptureComponent::ResolvePointCloudComponent(
 }
 
 void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& SceneColourData,
+                                                const TArray<FLinearColor>& SceneNormalData,
                                                 const TArray<float>& SceneDepthData, int32 Width,
                                                 int32 Height, FBox WorldBounds)
 {
@@ -279,18 +278,11 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 		return;
 	}
 
-	ResolvePointCloudComponent();
-	PointCloud->Initialize(FBox(FVector(-Diameter / 2.0, -Diameter / 2.0, -100000.0),
-	                            FVector(Diameter / 2.0, Diameter / 2.0, 100000.0)));
-
-	Viz_Points.Reset(0);
-
 	AGenericFoliageActor* Parent = Cast<AGenericFoliageActor>(GetOwner());
 	check(IsValid(Parent));
-	// Viz_Points.SetNumUninitialized(Width * Height);
 
 	TMap<FGuid, TArray<FTransform>> FoliageTransforms;
-	for (UGenericFoliageType* FoliageType: Parent->FoliageTypes)
+	for (UGenericFoliageType* FoliageType : Parent->FoliageTypes)
 	{
 		if (!IsValid(FoliageType))
 		{
@@ -299,11 +291,65 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 
 		FoliageTransforms.Add(FoliageType->GetGuid(), {});
 	}
-	
+
 	FTransform AbsoluteTransform = FTransform(
-		FRotator(0, 180, 0).Quaternion() * Parent->CalculateEastNorthUp(GetComponentLocation()).Quaternion(),
+		GetComponentTransform().TransformRotation(FRotator(0.0, 90.0, 90.0).Quaternion()),
 		GetComponentLocation()
 	);
+
+	auto SampleGridColour = [](const TArray<FLinearColor>& InData, const float& U, const float& V, const int32& Width,
+	                           const int32& Height)
+	{
+		const int32 OX = FMath::Floor(U);
+		const int32 OY = FMath::Floor(V);
+		const int32 NX = FMath::CeilToInt32(U);
+		const int32 NY = FMath::CeilToInt32(V);
+
+		const FLinearColor& V1 = FMath::BiLerp(
+			InData[
+				OY * Width + OX
+			],
+			InData[
+				OY * Width + NX
+			],
+			InData[
+				NY * Width + OX
+			],
+			InData[
+				NY * Width + NX
+			],
+			U / static_cast<float>(Width), V / static_cast<float>(Height)
+		);
+
+		return V1;
+	};
+
+	auto SampleGridFloat = [](const TArray<float>& InData, const float& U, const float& V, const int32& Width,
+	                          const int32& Height)
+	{
+		const int32 OX = FMath::Floor(U);
+		const int32 OY = FMath::Floor(V);
+		const int32 NX = FMath::CeilToInt32(U);
+		const int32 NY = FMath::CeilToInt32(V);
+
+		const float& V1 = FMath::BiLerp(
+			InData[
+				OY * Width + OX
+			],
+			InData[
+				OY * Width + NX
+			],
+			InData[
+				NY * Width + OX
+			],
+			InData[
+				NY * Width + NX
+			],
+			U / static_cast<float>(Width), V / static_cast<float>(Height)
+		);
+
+		return V1;
+	};
 
 	for (int32 y = 0; y < Height; ++y)
 	{
@@ -311,69 +357,159 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 		{
 			const int32 i = y * Width + x;
 
-			float Depth = 0.f;
-			if (SceneDepthData.IsValidIndex(i))
+			for (UGenericFoliageType* FoliageType : Parent->FoliageTypes)
 			{
-				Depth = SceneDepthData[i];
-				//	UE_LOG(LogTemp, Display, TEXT("Depth: %f %f"), Depth, FMath::Lerp(SceneDepthCapture->GetRelativeLocation().Z, 0, Depth));
+				if (!IsValid(FoliageType))
+				{
+					break;
+				}
+
+				// TODO: Find nearest tile to camera
+				if (FoliageType->bOnlySpawnInNearestTile && TileID.X != 0 && TileID.Y != 0)
+				{
+					continue;
+				}
+				
+				if (FoliageType->Density > 1.f)
+				{
+					int32 NumBetweenPixels = FMath::RoundToInt32(FoliageType->Density);
+					for (int32 OffsetX = 0; OffsetX < NumBetweenPixels; ++OffsetX)
+					{
+						for (int32 OffsetY = 0; OffsetY < NumBetweenPixels; ++OffsetY)
+						{
+							float NewX = FMath::Lerp(static_cast<float>(x), static_cast<float>(x) + 1,
+							                         static_cast<float>(OffsetX) / static_cast<float>(
+								                         NumBetweenPixels));
+							float NewY = FMath::Lerp(static_cast<float>(y), static_cast<float>(y) + 1,
+							                         static_cast<float>(OffsetY) / static_cast<float>(
+								                         NumBetweenPixels));
+
+							if (FMath::CeilToInt(NewX) < Width && FMath::CeilToInt(NewY) < Height)
+							{
+								const FLinearColor ColourAtPoint = SampleGridColour(
+									SceneColourData, NewX, NewY, Width, Height) * 15.f;
+								const FRotator NormalAtPoint = FVector(SampleGridColour(
+									SceneNormalData, NewX, NewY, Width, Height).Desaturate(-0.5f)).Rotation();
+								const float DepthAtPoint = SampleGridFloat(SceneDepthData, NewX, NewY, Width, Height);
+
+								FVector RelativePosition = FVector(
+									FMath::Lerp(-Diameter / 2.0, Diameter / 2.0,
+									            static_cast<double>(x) / static_cast<double>(Width)),
+									FMath::Lerp(-Diameter / 2.0, Diameter / 2.0,
+									            static_cast<double>(y) / static_cast<double>(Height)),
+									-DepthAtPoint
+								);
+
+								if (FoliageType->SpawnConstraint.IntersectsRGB(ColourAtPoint))
+								{
+									FoliageTransforms[FoliageType->GetGuid()].Emplace(
+										FTransform(
+											FoliageType->bAlignToSurfaceNormal
+												? NormalAtPoint
+												: AbsoluteTransform.Rotator(),
+											AbsoluteTransform.TransformPosition(
+												RelativePosition + FoliageType->LocalOffset),
+											FoliageType->GetRandomScale()
+										)
+									);
+								}
+							}
+						}
+					}
+				}
+				else
+				{
+					int32 NumBetweenPixels = FMath::RoundToInt32(1.f / FoliageType->Density);
+					if ((x % NumBetweenPixels) == 0 && (y % NumBetweenPixels) == 0)
+					{
+						float Depth = 0.f;
+						if (SceneDepthData.IsValidIndex(i))
+						{
+							Depth = SceneDepthData[i];
+						}
+
+						FVector RelativePosition = FVector(
+							FMath::Lerp(-Diameter / 2.0, Diameter / 2.0,
+										static_cast<double>(x) / static_cast<double>(Width)),
+							FMath::Lerp(-Diameter / 2.0, Diameter / 2.0,
+										static_cast<double>(y) / static_cast<double>(Height)),
+							-Depth
+						);
+
+						const FLinearColor& ColourAtPoint = SceneColourData[i] * 15;
+						const FRotator NormalRotator = FVector(SceneNormalData[i].Desaturate(-0.5f)).Rotation();
+
+						if (FoliageType->SpawnConstraint.IntersectsRGB(ColourAtPoint))
+						{
+							FoliageTransforms[FoliageType->GetGuid()].Emplace(
+								FTransform(
+									FoliageType->bAlignToSurfaceNormal ? NormalRotator : AbsoluteTransform.Rotator(),
+									AbsoluteTransform.TransformPosition(RelativePosition + FoliageType->LocalOffset),
+									FoliageType->GetRandomScale()
+								)
+							);
+						}
+					}
+				}
+			}
+		}
+	}
+
+	AsyncTask(ENamedThreads::GameThread, [this, FoliageTransforms = MoveTemp(FoliageTransforms), Parent]()
+	{
+		if (!IsValid(this))
+		{
+			return;
+		}
+		
+		for (UGenericFoliageType* FoliageType : Parent->FoliageTypes)
+		{
+			if (!IsValid(FoliageType))
+			{
+				continue;
 			}
 
-			FVector RelativePosition = FVector(
-				FMath::Lerp(-Diameter / 2.0, Diameter / 2.0, static_cast<double>(x) / static_cast<double>(Width)),
-				FMath::Lerp(-Diameter / 2.0, Diameter / 2.0, static_cast<double>(y) / static_cast<double>(Height)),
-				-Depth
-			);
+			const TArray<FTransform>& Transforms = FoliageTransforms[FoliageType->GetGuid()];
+			// UE_LOG(LogGenericFoliage, Display, TEXT("Adding Foliage: %i"), Transforms.Num());
 
-			FVector WorldPosition = GetComponentTransform().TransformPosition(RelativePosition);
-			
-			const FLinearColor& Data = SceneColourData[i] * 15;
-			
-			for (UGenericFoliageType* FoliageType: Parent->FoliageTypes)
+			if (Transforms.Num() > 0)
 			{
-				if (FoliageType->SpawnConstraint.IntersectsRGB(Data))
+				auto HISM = Parent->TileInstancedMeshPools[TileID]->HISMPool[FoliageType->GetGuid()];
+				HISM->ClearInstances();
+
+				const int32 NumInstancesPerChunk = 10000;
+				const int32 ExpectedChunks = Transforms.Num() / NumInstancesPerChunk;
+
+				if (ExpectedChunks > 1)
 				{
-					FoliageTransforms[FoliageType->GetGuid()].Emplace(
-						FTransform(
-							FRotator(0.f),
-							AbsoluteTransform.TransformPosition(RelativePosition + FoliageType->LocalOffset),
-							FoliageType->ScaleRange.GetRandom()
-						)
+					for (int32 i = 0; i < ExpectedChunks; ++i)
+					{
+						const int32 StartIndex = i * NumInstancesPerChunk;
+						const int32 EndIndex = FMath::Clamp((i + 1) * NumInstancesPerChunk, 0, Transforms.Num() - 1);
+
+						TArray<FTransform> ChunkedTransforms(
+							TArrayView<const FTransform>(Transforms).Slice(StartIndex, (EndIndex - StartIndex)));
+						Parent->EnqueueTickTask(
+							[ChunkedTransforms = MoveTemp(ChunkedTransforms), HISM]()
+							{
+								HISM->AddInstances(
+									ChunkedTransforms, false, true
+								);
+							}
+						);
+					}
+				}
+				else
+				{
+					HISM->AddInstances(
+						Transforms, false, true
 					);
 				}
 			}
-			/*
-			Viz_Points[i] = FLidarPointCloudPoint(
-				FVector3f(GetComponentTransform().InverseTransformPosition(WorldPosition)),
-				Data.R, Data.G, Data.B, 1.f, 0
-			);
-			*/
-		}
-	}
-	
-	// PointCloud->InsertPoints_NoLock(Viz_Points.GetData(), Viz_Points.Num(), ELidarPointCloudDuplicateHandling::Ignore,
-	//                                false, FVector::ZeroVector);
-
-	for (UGenericFoliageType* FoliageType: Parent->FoliageTypes)
-	{
-		if (!IsValid(FoliageType))
-		{
-			continue;
 		}
 
-		const TArray<FTransform>& Transforms = FoliageTransforms[FoliageType->GetGuid()];
-		// UE_LOG(LogGenericFoliage, Display, TEXT("Adding Foliage: %i"), Transforms.Num());
-		
-		if (Transforms.Num() > 0)
-		{
-			auto HISM = Parent->TileInstancedMeshPools[TileID]->HISMPool[FoliageType->GetGuid()];
-			HISM->ClearInstances();
-			HISM->AddInstances(
-				Transforms, false, true
-			);
-		}
-	}
-	
-	bReadyToUpdate = true;
+		bReadyToUpdate = true;
+	});
 }
 
 FName UFoliageCaptureComponent::CreateComponentName(const FString& ComponentName) const

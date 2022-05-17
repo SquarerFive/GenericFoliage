@@ -39,7 +39,17 @@ void FGenericFoliageComputeModule::CopyRenderTargetToCpu(FRHICommandListImmediat
 }
 
 void FGenericFoliageComputeModule::CopyRenderTargetToCpu(FRHICommandListImmediate& RHICmdList,
-	UTextureRenderTarget2D* InRenderTarget, TArray<FVector4f>& OutData)
+	UTextureRenderTarget2D* InRenderTarget, TArray<FVector3f>& OutData)
+{
+	check(IsInRenderingThread());
+	
+	TShaderMapRef<FCopyRenderTargetToCpu_FVector3f> Shader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+	check(Shader.IsValid());
+	Shader->Compute(RHICmdList, InRenderTarget, OutData);
+}
+
+void FGenericFoliageComputeModule::CopyRenderTargetToCpu(FRHICommandListImmediate& RHICmdList,
+                                                         UTextureRenderTarget2D* InRenderTarget, TArray<FVector4f>& OutData)
 {
 	check(IsInRenderingThread());
 	

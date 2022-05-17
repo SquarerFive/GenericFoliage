@@ -39,14 +39,14 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	FVector Max = FVector(1.0);
 
-	FVector GetRandom() const
+	FVector GetRandom(const FRandomStream& RandStream) const
 	{
 		if (Min == Max)
 		{
 			return Min;
 		}
 
-		return FMath::Lerp(Min, Max, FRandomStream().FRand());
+		return FMath::Lerp(Min, Max, RandStream.FRand());
 	}
 };
 
@@ -54,6 +54,9 @@ UCLASS()
 class GENERICFOLIAGE_API UGenericFoliageType : public UObject
 {
 	GENERATED_BODY()
+
+	UGenericFoliageType();
+	
 public:
 	/** A static mesh representing this foliage type */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
@@ -75,10 +78,37 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
 	FVectorInterval ScaleRange;
 
+	/** Culling distances. Defines the distance where culling begins and the distance where it's fully culled */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
+	FInt32Interval CullingDistanceRange = FInt32Interval(32768, 65536);
+
+	/** Whether each instance should align to the surface normal, otherwise it'll just face upwards from the planet. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
+	bool bAlignToSurfaceNormal = false;
+
+	/** Initial random seed to apply to this asset */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
+	int32 RandomSeed = 1337;
+	
+	/** If enabled, we will only spawn this foliage type in the nearest tile */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
+	bool bOnlySpawnInNearestTile = false;
+
+	/** Should we enable collision? */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
+	TEnumAsByte<ECollisionEnabled::Type> IsCollisionEnabled;
+	
 public:
+	UFUNCTION()
 	FGuid GetGuid();
 
+	UFUNCTION()
+	FVector GetRandomScale() const;
+	
 private:
 	UPROPERTY()
 	FGuid Guid;
+
+	UPROPERTY()
+	FRandomStream RandomStream;
 };

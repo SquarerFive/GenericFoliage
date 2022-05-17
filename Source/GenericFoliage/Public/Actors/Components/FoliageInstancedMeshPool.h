@@ -33,5 +33,8 @@ public:
 	// Map that stores our ISMs. these are mapped against a GUID which comes from a foliage type 
 	UPROPERTY(Transient)
 	TMap<FGuid, UHierarchicalInstancedStaticMeshComponent*> HISMPool;
-		
+
+	/** Whether collision is enabled on our instances. typically this is set in its owning actor */
+	UPROPERTY(Transient)
+	bool bEnableCollision = true;
 };

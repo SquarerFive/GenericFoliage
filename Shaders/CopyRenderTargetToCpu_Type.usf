@@ -5,6 +5,7 @@
 #endif
 
 Texture2D<PIXEL_DATA_TYPE> InRenderTarget;
+SamplerState InRenderTargetSampler;
 uint2 InRenderTargetDimensions;
 
 RWBuffer<PIXEL_DATA_TYPE> OutRenderTargetData;
@@ -18,5 +19,15 @@ void main(uint3 ThreadId : SV_DispatchThreadID) {
 
     OutRenderTargetData[
         ThreadId.y * InRenderTargetDimensions.x + ThreadId.x
-    ] = InRenderTarget.Load(int3(ThreadId.x, ThreadId.y, 0));
+    ] = InRenderTarget.SampleLevel(
+            InRenderTargetSampler,
+            float2(
+                float(ThreadId.x) / float(InRenderTargetDimensions.x),
+                float(ThreadId.y) / float(InRenderTargetDimensions.y)
+                ),
+                1
+            );
+        
+
+    //InRenderTarget.Load(int3(ThreadId.x, ThreadId.y, 0));
 }

@@ -67,6 +67,7 @@ public: \
 	SHADER_USE_PARAMETER_STRUCT(FCopyRenderTargetToCpu_##PixelDataType, FGlobalShader) \
 		BEGIN_SHADER_PARAMETER_STRUCT(FParameters, ) \
 		SHADER_PARAMETER_TEXTURE(Texture2D<PixelDataType>, InRenderTarget) \
+		SHADER_PARAMETER_SAMPLER(SamplerState, InRenderTargetSampler)\
 		SHADER_PARAMETER(FIntPoint, InRenderTargetDimensions) \
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<PixelDataType>, OutRenderTargetData) \
 	END_SHADER_PARAMETER_STRUCT() \
@@ -102,6 +103,10 @@ void FCopyRenderTargetToCpu_##PixelDataType::Compute( \
 	check(InRenderTarget->GetRenderTargetResource()); \
 	\
 	Params->InRenderTarget = InRenderTarget->GetRenderTargetResource()->GetTexture2DRHI(); \
+	Params->InRenderTargetSampler = RHICreateSamplerState(FSamplerStateInitializerRHI( \
+		ESamplerFilter::SF_Point \
+		\
+	)); \
 	OutData.SetNumUninitialized(InRenderTarget->SizeX * InRenderTarget->SizeY); \
 	FRDGBufferRef OutDataBuffer = CreateStructuredBuffer(GraphBuilder, TEXT("Out_Buffer"), sizeof(PixelDataType), OutData.Num(), OutData.GetData(), \
 					   sizeof(PixelDataType) * OutData.Num()); \

@@ -87,6 +87,7 @@ public:
 private:
 	void Compute_Internal(
 		const TArray<FLinearColor>& SceneColourData,
+		const TArray<FLinearColor>& SceneNormalData,
 		const TArray<float>& SceneDepthData,
 		int32 Width,
 		int32 Height,

@@ -3,6 +3,11 @@
 
 #include "Foliage/GenericFoliageType.h"
 
+UGenericFoliageType::UGenericFoliageType()
+{
+	RandomStream = FRandomStream(RandomSeed);
+}
+
 FGuid UGenericFoliageType::GetGuid()
 {
 	if (!Guid.IsValid())
@@ -11,4 +16,9 @@ FGuid UGenericFoliageType::GetGuid()
 	}
 	
 	return Guid;
+}
+
+FVector UGenericFoliageType::GetRandomScale() const
+{
+	return ScaleRange.GetRandom(RandomStream);
 }
