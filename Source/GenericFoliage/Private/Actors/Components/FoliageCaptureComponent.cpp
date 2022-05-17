@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+// Copyright Aiden. S. All Rights Reserved
 
 
 #include "Actors/Components/FoliageCaptureComponent.h"
@@ -9,6 +9,7 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "Actors/GenericFoliageActor.h"
 #include "Async/Async.h"
+#include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Kismet/KismetRenderingLibrary.h"
 
 // Sets default values for this component's properties
@@ -286,8 +287,23 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 
 	AGenericFoliageActor* Parent = Cast<AGenericFoliageActor>(GetOwner());
 	check(IsValid(Parent));
+	// Viz_Points.SetNumUninitialized(Width * Height);
 
-	Viz_Points.SetNumUninitialized(Width * Height);
+	TMap<FGuid, TArray<FTransform>> FoliageTransforms;
+	for (UGenericFoliageType* FoliageType: Parent->FoliageTypes)
+	{
+		if (!IsValid(FoliageType))
+		{
+			continue;
+		}
+
+		FoliageTransforms.Add(FoliageType->GetGuid(), {});
+	}
+	
+	FTransform AbsoluteTransform = FTransform(
+		FRotator(0, 180, 0).Quaternion() * Parent->CalculateEastNorthUp(GetComponentLocation()).Quaternion(),
+		GetComponentLocation()
+	);
 
 	for (int32 y = 0; y < Height; ++y)
 	{
@@ -309,21 +325,54 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 			);
 
 			FVector WorldPosition = GetComponentTransform().TransformPosition(RelativePosition);
-
-			const FLinearColor& Data = SceneColourData[i] * 15.0;
-
+			
+			const FLinearColor& Data = SceneColourData[i] * 15;
+			
+			for (UGenericFoliageType* FoliageType: Parent->FoliageTypes)
+			{
+				if (FoliageType->SpawnConstraint.IntersectsRGB(Data))
+				{
+					FoliageTransforms[FoliageType->GetGuid()].Emplace(
+						FTransform(
+							FRotator(0.f),
+							AbsoluteTransform.TransformPosition(RelativePosition + FoliageType->LocalOffset),
+							FoliageType->ScaleRange.GetRandom()
+						)
+					);
+				}
+			}
+			/*
 			Viz_Points[i] = FLidarPointCloudPoint(
 				FVector3f(GetComponentTransform().InverseTransformPosition(WorldPosition)),
 				Data.R, Data.G, Data.B, 1.f, 0
 			);
+			*/
 		}
 	}
+	
+	// PointCloud->InsertPoints_NoLock(Viz_Points.GetData(), Viz_Points.Num(), ELidarPointCloudDuplicateHandling::Ignore,
+	//                                false, FVector::ZeroVector);
 
-	// PointCloud->InsertPoints(Viz_Points, ELidarPointCloudDuplicateHandling::Ignore, false, FVector::ZeroVector);
+	for (UGenericFoliageType* FoliageType: Parent->FoliageTypes)
+	{
+		if (!IsValid(FoliageType))
+		{
+			continue;
+		}
 
-	//PointCloud->RefreshBounds();
-	PointCloud->InsertPoints_NoLock(Viz_Points.GetData(), Viz_Points.Num(), ELidarPointCloudDuplicateHandling::Ignore,
-	                                false, FVector::ZeroVector);
+		const TArray<FTransform>& Transforms = FoliageTransforms[FoliageType->GetGuid()];
+		// UE_LOG(LogGenericFoliage, Display, TEXT("Adding Foliage: %i"), Transforms.Num());
+		
+		if (Transforms.Num() > 0)
+		{
+			auto HISM = Parent->TileInstancedMeshPools[TileID]->HISMPool[FoliageType->GetGuid()];
+			HISM->ClearInstances();
+			HISM->AddInstances(
+				Transforms, false, true
+			);
+		}
+	}
+	
 	bReadyToUpdate = true;
 }
 

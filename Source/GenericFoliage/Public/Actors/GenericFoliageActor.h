@@ -1,8 +1,10 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+// Copyright Aiden. S. All Rights Reserved
 
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Components/FoliageInstancedMeshPool.h"
+#include "Foliage/GenericFoliageType.h"
 #include "GameFramework/Actor.h"
 #include "Interface/ProjectionInterface.h"
 #include "GenericFoliageActor.generated.h"
@@ -32,23 +34,26 @@ public:
 	virtual void Tick(float DeltaTime) override;
 
 public:
-	// UPROPERTY(VisibleAnywhere, Transient, DuplicateTransient, Category = "ProceduralFoliage")
-	// TArray<UFoliageCaptureComponent*> FoliageCaptureComponents;
+	UPROPERTY(EditAnywhere, Category = "ProceduralFoliage")
+	TArray<UGenericFoliageType*> FoliageTypes;
 
+	UPROPERTY(Transient)
+	TMap<FIntPoint, UFoliageInstancedMeshPool*> TileInstancedMeshPools;
+	
 private:
 	UPROPERTY(EditAnywhere, Category = "ProceduralFoliage")
-	AActor* ProjectionImplementation;
+	bool bDisableUpdates = false;
 	
 	UPROPERTY(VisibleAnywhere, Transient, Category = "ProceduralFoliage")
 	FVector LastUpdatePosition;
 
-	UPROPERTY(VisibleAnywhere, Transient, Category = "ProceduralFoliage")
+	UPROPERTY(Transient)
 	UTextureRenderTarget2D* SceneColourRT;
 
-	UPROPERTY(VisibleAnywhere, Transient, Category = "ProceduralFoliage")
+	UPROPERTY(Transient)
 	UTextureRenderTarget2D* SceneDepthRT;
 
-	UPROPERTY(VisibleAnywhere, Transient, Category = "ProceduralFoliage")
+	UPROPERTY(Transient)
 	UTextureRenderTarget2D* SceneNormalRT;
 
 	float UpdateFrequency = 0.2f;
@@ -60,6 +65,8 @@ private:
 	bool IsReadyToUpdate() const;
 	
 	void SetupTextureTargets();
+
+	void RebuildInstancedMeshPool();
 
 	TArray<UFoliageCaptureComponent*> GetFoliageCaptureComponents() const;
 

@@ -3,3 +3,12 @@
 
 #include "Foliage/GenericFoliageType.h"
 
+FGuid UGenericFoliageType::GetGuid()
+{
+	if (!Guid.IsValid())
+	{
+		Guid = FGuid::NewGuid();
+	}
+	
+	return Guid;
+}

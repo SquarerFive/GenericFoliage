@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+// Copyright Aiden. S. All Rights Reserved
 
 #pragma once
 
@@ -20,6 +20,12 @@ public:
 	
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	FLinearColor Max;
+
+	bool IntersectsRGB(const FLinearColor& Other) const
+	{
+		return Other.R >= Min.R && Other.G >= Min.G && Other.B >= Min.B &&
+			Other.R <= Max.R && Other.G <= Max.G && Other.B <= Max.B;
+	}
 };
 
 USTRUCT(BlueprintType)
@@ -32,6 +38,16 @@ public:
 	
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	FVector Max = FVector(1.0);
+
+	FVector GetRandom() const
+	{
+		if (Min == Max)
+		{
+			return Min;
+		}
+
+		return FMath::Lerp(Min, Max, FRandomStream().FRand());
+	}
 };
 
 UCLASS()
@@ -58,4 +74,11 @@ public:
 	/** Minimum and maximum scale applied to each instance */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
 	FVectorInterval ScaleRange;
+
+public:
+	FGuid GetGuid();
+
+private:
+	UPROPERTY()
+	FGuid Guid;
 };

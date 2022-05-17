@@ -1,10 +1,9 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+// Copyright Aiden. S. All Rights Reserved
 
 
 #include "Actors/GenericFoliageActor.h"
-
-#include "GenericFoliage.h"
 #include "Actors/Components/FoliageCaptureComponent.h"
+#include "Actors/Components/FoliageInstancedMeshPool.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -32,6 +31,11 @@ AGenericFoliageActor::AGenericFoliageActor()
 				FName(FString::Printf(TEXT("%i%i_FoliageCapture"), x, y)), true);
 			FoliageCaptureComponent->TileID = {x, y};
 			FoliageCaptureComponent->SetupAttachment(GetRootComponent());
+
+			UFoliageInstancedMeshPool* InstancedMeshPool = CreateDefaultSubobject<UFoliageInstancedMeshPool>(
+				FName(FString::Printf(TEXT("%i%i_FoliageISMPool"), x, y)), true);
+			
+			TileInstancedMeshPools.Add(FIntPoint(x, y), InstancedMeshPool);
 		}
 	}
 
@@ -43,6 +47,8 @@ AGenericFoliageActor::AGenericFoliageActor()
 void AGenericFoliageActor::BeginPlay()
 {
 	Super::BeginPlay();
+
+	RebuildInstancedMeshPool();
 }
 
 bool AGenericFoliageActor::ShouldTickIfViewportsOnly() const
@@ -53,12 +59,28 @@ bool AGenericFoliageActor::ShouldTickIfViewportsOnly() const
 void AGenericFoliageActor::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
+
+	RebuildInstancedMeshPool();
 }
 
 #if WITH_EDITOR
 void AGenericFoliageActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	if (bDisableUpdates)
+	{
+		for (UFoliageCaptureComponent* CaptureComponent : GetFoliageCaptureComponents())
+		{
+			if (IsValid(CaptureComponent))
+			{
+				if (IsValid(CaptureComponent->PointCloudComponent->GetPointCloud()))
+				{
+					CaptureComponent->PointCloudComponent->GetPointCloud()->Initialize(FBox(FVector(0.0), FVector(100.0)));
+				}
+			}
+		}
+	}
 }
 #endif
 
@@ -67,7 +89,7 @@ void AGenericFoliageActor::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	if (UpdateTime > UpdateFrequency)
+	if (UpdateTime > UpdateFrequency && !bDisableUpdates)
 	{
 		UpdateTime = 0.f;
 
@@ -165,7 +187,10 @@ bool AGenericFoliageActor::IsReadyToUpdate() const
 	bool bIsReadyToUpdate = true;
 	for (const UFoliageCaptureComponent* FoliageCaptureComponent : GetFoliageCaptureComponents())
 	{
-		bIsReadyToUpdate = bIsReadyToUpdate && FoliageCaptureComponent->IsReadyToUpdate();
+		if (IsValid(FoliageCaptureComponent))
+		{
+			bIsReadyToUpdate = bIsReadyToUpdate && FoliageCaptureComponent->IsReadyToUpdate();
+		}
 	}
 	return bIsReadyToUpdate;
 }
@@ -183,11 +208,11 @@ void AGenericFoliageActor::SetupTextureTargets()
 
 		SceneDepthRT = NewObject<UTextureRenderTarget2D>(this, "SceneDepthRT", RF_Transient);
 		check(SceneDepthRT);
-		
+
 		SceneDepthRT->RenderTargetFormat = RTF_R32f;
 		SceneDepthRT->InitAutoFormat(512, 512);
 		SceneDepthRT->UpdateResourceImmediate(true);
-		
+
 		SceneNormalRT = NewObject<UTextureRenderTarget2D>(this, "SceneNormalRT", RF_Transient);
 		check(SceneNormalRT);
 
@@ -195,6 +220,20 @@ void AGenericFoliageActor::SetupTextureTargets()
 		SceneNormalRT->RenderTargetFormat = RTF_RGBA8;
 		SceneNormalRT->UpdateResourceImmediate(true);
 	}
+}
+
+void AGenericFoliageActor::RebuildInstancedMeshPool()
+{
+	TickQueue.Emplace([this]()
+	{
+		for (auto& MeshPoolPair : TileInstancedMeshPools)
+		{
+			if (FoliageTypes.Num() > 0)
+			{
+				MeshPoolPair.Value->RebuildHISMPool(FoliageTypes);
+			}
+		}
+	});
 }
 
 TArray<UFoliageCaptureComponent*> AGenericFoliageActor::GetFoliageCaptureComponents() const
