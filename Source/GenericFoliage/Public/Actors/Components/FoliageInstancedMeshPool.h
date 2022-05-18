@@ -26,9 +26,15 @@ public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 	virtual void RebuildHISMPool(
-		const TArray<UGenericFoliageType*>& FoliageTypes
+		const TArray<UGenericFoliageType*>& InFoliageTypes
 	);
+	
+	/** Toggles collision on this tile */
+	virtual void ToggleCollision(bool bNewEnableCollision);
 
+	/** Returns the total instance count of this tile */
+	int32 GetTotalInstanceCount() const;
+	
 public:
 	// Map that stores our ISMs. these are mapped against a GUID which comes from a foliage type 
 	UPROPERTY(Transient)
@@ -37,4 +43,8 @@ public:
 	/** Whether collision is enabled on our instances. typically this is set in its owning actor */
 	UPROPERTY(Transient)
 	bool bEnableCollision = true;
+
+	/** Foliage types in this tile */
+	UPROPERTY(Transient)
+	TArray<UGenericFoliageType*> FoliageTypes;
 };

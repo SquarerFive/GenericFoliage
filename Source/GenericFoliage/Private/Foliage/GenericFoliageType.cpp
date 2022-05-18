@@ -14,11 +14,16 @@ FGuid UGenericFoliageType::GetGuid()
 	{
 		Guid = FGuid::NewGuid();
 	}
-	
+
 	return Guid;
 }
 
 FVector UGenericFoliageType::GetRandomScale() const
 {
 	return ScaleRange.GetRandom(RandomStream);
+}
+
+FRotator UGenericFoliageType::GetRandomRotator() const
+{
+	return RotatorRange.GetRandom(RandomStream);
 }

@@ -194,6 +194,11 @@ void UFoliageCaptureComponent::PrepareForCapture(UTextureRenderTarget2D* InScene
                                                  UTextureRenderTarget2D* InSceneNormalRT,
                                                  UTextureRenderTarget2D* InSceneDepthRT)
 {
+	BoundingBox = FBox(
+		FVector(-Diameter / 2.0, -Diameter / 2.0, -300000),
+		FVector(Diameter / 2.0, Diameter / 2.0, 300000)
+	);
+
 	if (bIsUsingSharedResources)
 	{
 		SceneColourRT = InSceneColourRT;
@@ -255,6 +260,14 @@ bool UFoliageCaptureComponent::IsReadyToUpdate() const
 	return bReadyToUpdate;
 }
 
+void UFoliageCaptureComponent::SetDiameter(float InNewDiameter)
+{
+	Diameter = InNewDiameter;
+	SceneColourCapture->OrthoWidth = Diameter;
+	SceneDepthCapture->OrthoWidth = Diameter;
+	SceneNormalCapture->OrthoWidth = Diameter;
+}
+
 ULidarPointCloudComponent* UFoliageCaptureComponent::ResolvePointCloudComponent()
 {
 	if (!IsValid(PointCloudComponent->GetPointCloud()))
@@ -278,8 +291,22 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 		return;
 	}
 
+	
+
 	AGenericFoliageActor* Parent = Cast<AGenericFoliageActor>(GetOwner());
 	check(IsValid(Parent));
+
+	bool bCanUseParallel = false;
+
+	for (UGenericFoliageType* FoliageType : Parent->FoliageTypes)
+	{
+		if (!IsValid(FoliageType)) { continue; }
+		bCanUseParallel = FoliageType->Density == 1.f && bCanUseParallel;
+	}
+
+	const bool bEnableParallel = Width <= 512 && bCanUseParallel;
+
+	auto StartPrepareSpawn = FDateTime::Now();
 
 	TMap<FGuid, TArray<FTransform>> FoliageTransforms;
 	for (UGenericFoliageType* FoliageType : Parent->FoliageTypes)
@@ -290,6 +317,11 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 		}
 
 		FoliageTransforms.Add(FoliageType->GetGuid(), {});
+
+		if (bEnableParallel)
+		{
+			FoliageTransforms[FoliageType->GetGuid()].SetNumUninitialized(Width * Height);
+		}
 	}
 
 	FTransform AbsoluteTransform = FTransform(
@@ -351,108 +383,200 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 		return V1;
 	};
 
-	for (int32 y = 0; y < Height; ++y)
+	if (bEnableParallel)
 	{
-		for (int32 x = 0; x < Width; ++x)
+		for (UGenericFoliageType* FoliageType : Parent->FoliageTypes)
 		{
-			const int32 i = y * Width + x;
-
-			for (UGenericFoliageType* FoliageType : Parent->FoliageTypes)
+			if (!IsValid(FoliageType))
 			{
-				if (!IsValid(FoliageType))
+				continue;
+			}
+			FGuid Guid = FoliageType->GetGuid();
+			TArray<FTransform>& TransformsArray = FoliageTransforms[Guid];
+			ParallelFor(Width * Height, [&](int32 Index)
+			{
+				int32 y = Index / Width;
+				int32 x = Index % Width;
+				const float& Depth = SceneDepthData[Index];
+
+				FVector RelativePosition = FVector(
+					FMath::Lerp(-Diameter / 2.0, Diameter / 2.0,
+					            static_cast<double>(x) / static_cast<double>(Width)),
+					FMath::Lerp(-Diameter / 2.0, Diameter / 2.0,
+					            static_cast<double>(y) / static_cast<double>(Height)),
+					-Depth
+				);;
+
+				const FLinearColor& ColourAtPoint = SceneColourData[Index] * 15;
+				const FRotator NormalAtPoint = FVector(SceneNormalData[Index].Desaturate(-0.5f)).Rotation();
+
+				FRotator AbsoluteRotator = FoliageType->bAlignToSurfaceNormal
+					                           ? NormalAtPoint
+					                           : AbsoluteTransform.Rotator();
+
+				if (FoliageType->bEnableRandomRotation)
 				{
-					break;
+					AbsoluteRotator = (FoliageType->GetRandomRotator().Quaternion() * AbsoluteRotator.Quaternion()).
+						Rotator();
 				}
 
-				// TODO: Find nearest tile to camera
-				if (FoliageType->bOnlySpawnInNearestTile && TileID.X != 0 && TileID.Y != 0)
+				if (FoliageType->SpawnConstraint.IntersectsRGB(ColourAtPoint))
 				{
-					continue;
+					TransformsArray[Index] = (
+						FTransform(
+							AbsoluteRotator,
+							AbsoluteTransform.TransformPosition(RelativePosition + FoliageType->LocalOffset),
+							FoliageType->GetRandomScale()
+						)
+					);
 				}
-				
-				if (FoliageType->Density > 1.f)
+				else
 				{
-					int32 NumBetweenPixels = FMath::RoundToInt32(FoliageType->Density);
-					for (int32 OffsetX = 0; OffsetX < NumBetweenPixels; ++OffsetX)
+					TransformsArray[Index] = FTransform(FVector(NAN));
+				}
+			});
+
+			TransformsArray = TransformsArray.FilterByPredicate(
+				[&](const FTransform& Other) { return Other.IsValid(); });
+		}
+	}
+	else
+	{
+		for (int32 y = 0; y < Height; ++y)
+		{
+			for (int32 x = 0; x < Width; ++x)
+			{
+				const int32 i = y * Width + x;
+
+				for (UGenericFoliageType* FoliageType : Parent->FoliageTypes)
+				{
+					if (!IsValid(FoliageType))
 					{
-						for (int32 OffsetY = 0; OffsetY < NumBetweenPixels; ++OffsetY)
+						continue;
+					}
+
+					// TODO: Find nearest tile to camera
+					if (FoliageType->bOnlySpawnInNearestTile && TileID.X != 0 && TileID.Y != 0)
+					{
+						continue;
+					}
+
+					if (FoliageType->Density > 1.f)
+					{
+						int32 NumBetweenPixels = FMath::RoundToInt32(FoliageType->Density);
+						for (int32 OffsetX = 0; OffsetX < NumBetweenPixels; ++OffsetX)
 						{
-							float NewX = FMath::Lerp(static_cast<float>(x), static_cast<float>(x) + 1,
-							                         static_cast<float>(OffsetX) / static_cast<float>(
-								                         NumBetweenPixels));
-							float NewY = FMath::Lerp(static_cast<float>(y), static_cast<float>(y) + 1,
-							                         static_cast<float>(OffsetY) / static_cast<float>(
-								                         NumBetweenPixels));
-
-							if (FMath::CeilToInt(NewX) < Width && FMath::CeilToInt(NewY) < Height)
+							for (int32 OffsetY = 0; OffsetY < NumBetweenPixels; ++OffsetY)
 							{
-								const FLinearColor ColourAtPoint = SampleGridColour(
-									SceneColourData, NewX, NewY, Width, Height) * 15.f;
-								const FRotator NormalAtPoint = FVector(SampleGridColour(
-									SceneNormalData, NewX, NewY, Width, Height).Desaturate(-0.5f)).Rotation();
-								const float DepthAtPoint = SampleGridFloat(SceneDepthData, NewX, NewY, Width, Height);
+								float NewX = FMath::Lerp(static_cast<float>(x), static_cast<float>(x) + 1,
+								                         static_cast<float>(OffsetX) / static_cast<float>(
+									                         NumBetweenPixels));
+								float NewY = FMath::Lerp(static_cast<float>(y), static_cast<float>(y) + 1,
+								                         static_cast<float>(OffsetY) / static_cast<float>(
+									                         NumBetweenPixels));
 
-								FVector RelativePosition = FVector(
-									FMath::Lerp(-Diameter / 2.0, Diameter / 2.0,
-									            static_cast<double>(x) / static_cast<double>(Width)),
-									FMath::Lerp(-Diameter / 2.0, Diameter / 2.0,
-									            static_cast<double>(y) / static_cast<double>(Height)),
-									-DepthAtPoint
-								);
-
-								if (FoliageType->SpawnConstraint.IntersectsRGB(ColourAtPoint))
+								if (FMath::CeilToInt(NewX) < Width && FMath::CeilToInt(NewY) < Height)
 								{
-									FoliageTransforms[FoliageType->GetGuid()].Emplace(
-										FTransform(
-											FoliageType->bAlignToSurfaceNormal
-												? NormalAtPoint
-												: AbsoluteTransform.Rotator(),
-											AbsoluteTransform.TransformPosition(
-												RelativePosition + FoliageType->LocalOffset),
-											FoliageType->GetRandomScale()
-										)
+									const FLinearColor ColourAtPoint = SampleGridColour(
+										SceneColourData, NewX, NewY, Width, Height) * 15.f;
+									const FRotator NormalAtPoint = FVector(SampleGridColour(
+										SceneNormalData, NewX, NewY, Width, Height).Desaturate(-0.5f)).Rotation();
+									const float DepthAtPoint = SampleGridFloat(
+										SceneDepthData, NewX, NewY, Width, Height);
+
+									FVector RelativePosition = FVector(
+										FMath::Lerp(-Diameter / 2.0, Diameter / 2.0,
+										            static_cast<double>(x) / static_cast<double>(Width)),
+										FMath::Lerp(-Diameter / 2.0, Diameter / 2.0,
+										            static_cast<double>(y) / static_cast<double>(Height)),
+										-DepthAtPoint
 									);
+
+									FRotator AbsoluteRotator = FoliageType->bAlignToSurfaceNormal
+										                           ? NormalAtPoint
+										                           : AbsoluteTransform.Rotator();
+									if (FoliageType->bEnableRandomRotation)
+									{
+										AbsoluteRotator = (FoliageType->GetRandomRotator().Quaternion() *
+											AbsoluteRotator.Quaternion()).Rotator();
+									}
+
+									if (FoliageType->SpawnConstraint.IntersectsRGB(ColourAtPoint))
+									{
+										FoliageTransforms[FoliageType->GetGuid()].Emplace(
+											FTransform(
+												AbsoluteRotator,
+												AbsoluteTransform.TransformPosition(
+													RelativePosition + FoliageType->LocalOffset),
+												FoliageType->GetRandomScale()
+											)
+										);
+									}
 								}
 							}
 						}
 					}
-				}
-				else
-				{
-					int32 NumBetweenPixels = FMath::RoundToInt32(1.f / FoliageType->Density);
-					if ((x % NumBetweenPixels) == 0 && (y % NumBetweenPixels) == 0)
+					else
 					{
-						float Depth = 0.f;
-						if (SceneDepthData.IsValidIndex(i))
+						int32 NumBetweenPixels = FMath::RoundToInt32(1.f / FoliageType->Density);
+						if ((x % NumBetweenPixels) == 0 && (y % NumBetweenPixels) == 0)
 						{
-							Depth = SceneDepthData[i];
-						}
+							float Depth = 0.f;
+							if (SceneDepthData.IsValidIndex(i))
+							{
+								Depth = SceneDepthData[i];
+							}
 
-						FVector RelativePosition = FVector(
-							FMath::Lerp(-Diameter / 2.0, Diameter / 2.0,
-										static_cast<double>(x) / static_cast<double>(Width)),
-							FMath::Lerp(-Diameter / 2.0, Diameter / 2.0,
-										static_cast<double>(y) / static_cast<double>(Height)),
-							-Depth
-						);
-
-						const FLinearColor& ColourAtPoint = SceneColourData[i] * 15;
-						const FRotator NormalRotator = FVector(SceneNormalData[i].Desaturate(-0.5f)).Rotation();
-
-						if (FoliageType->SpawnConstraint.IntersectsRGB(ColourAtPoint))
-						{
-							FoliageTransforms[FoliageType->GetGuid()].Emplace(
-								FTransform(
-									FoliageType->bAlignToSurfaceNormal ? NormalRotator : AbsoluteTransform.Rotator(),
-									AbsoluteTransform.TransformPosition(RelativePosition + FoliageType->LocalOffset),
-									FoliageType->GetRandomScale()
-								)
+							FVector RelativePosition = FVector(
+								FMath::Lerp(-Diameter / 2.0, Diameter / 2.0,
+								            static_cast<double>(x) / static_cast<double>(Width)),
+								FMath::Lerp(-Diameter / 2.0, Diameter / 2.0,
+								            static_cast<double>(y) / static_cast<double>(Height)),
+								-Depth
 							);
+
+							const FLinearColor& ColourAtPoint = SceneColourData[i] * 15;
+							const FRotator NormalAtPoint = FVector(SceneNormalData[i].Desaturate(-0.5f)).Rotation();
+
+							FRotator AbsoluteRotator = FoliageType->bAlignToSurfaceNormal
+								                           ? NormalAtPoint
+								                           : AbsoluteTransform.Rotator();
+
+							if (FoliageType->bEnableRandomRotation)
+							{
+								AbsoluteRotator = (FoliageType->GetRandomRotator().Quaternion() * AbsoluteRotator.
+									Quaternion()).Rotator();
+							}
+
+							if (FoliageType->SpawnConstraint.IntersectsRGB(ColourAtPoint))
+							{
+								FoliageTransforms[FoliageType->GetGuid()].Emplace(
+									FTransform(
+										AbsoluteRotator,
+										AbsoluteTransform.
+										TransformPosition(RelativePosition + FoliageType->LocalOffset),
+										FoliageType->GetRandomScale()
+									)
+								);
+							}
 						}
 					}
 				}
 			}
 		}
+	}
+
+	auto EndPrepareSpawn = FDateTime::Now();
+
+	if (bEnableParallel)
+	{
+		UE_LOG(LogGenericFoliage, Display, TEXT("Time taken to compute foliage transforms (parallel): %f seconds"),
+		       (EndPrepareSpawn - StartPrepareSpawn).GetTotalSeconds());
+	}
+	else
+	{
+		UE_LOG(LogGenericFoliage, Display, TEXT("Time taken to compute foliage transforms (standard): %f seconds"),
+		       (EndPrepareSpawn - StartPrepareSpawn).GetTotalSeconds());
 	}
 
 	AsyncTask(ENamedThreads::GameThread, [this, FoliageTransforms = MoveTemp(FoliageTransforms), Parent]()
@@ -461,6 +585,12 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 		{
 			return;
 		}
+		
+		// Execute last
+		Parent->EnqueueFoliageTickTask([this]()
+		{
+			bReadyToUpdate = true;
+		}); 
 		
 		for (UGenericFoliageType* FoliageType : Parent->FoliageTypes)
 		{
@@ -475,21 +605,29 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 			if (Transforms.Num() > 0)
 			{
 				auto HISM = Parent->TileInstancedMeshPools[TileID]->HISMPool[FoliageType->GetGuid()];
-				HISM->ClearInstances();
 
-				const int32 NumInstancesPerChunk = 10000;
+				const int32 NumInstancesPerChunk = 25000;
 				const int32 ExpectedChunks = Transforms.Num() / NumInstancesPerChunk;
+
+				HISM->bAutoRebuildTreeOnInstanceChanges = false;
+
+				// Executes last
+				Parent->EnqueueFoliageTickTask([this, HISM]()
+				{
+					HISM->BuildTreeIfOutdated(true, true);
+				});
 
 				if (ExpectedChunks > 1)
 				{
-					for (int32 i = 0; i < ExpectedChunks; ++i)
+					for (int32 i = 0; i <= ExpectedChunks; ++i)
 					{
 						const int32 StartIndex = i * NumInstancesPerChunk;
-						const int32 EndIndex = FMath::Clamp((i + 1) * NumInstancesPerChunk, 0, Transforms.Num() - 1);
+						const int32 EndIndex =
+							FMath::Clamp((i + 1) * NumInstancesPerChunk, 0, Transforms.Num() - 1);
 
 						TArray<FTransform> ChunkedTransforms(
 							TArrayView<const FTransform>(Transforms).Slice(StartIndex, (EndIndex - StartIndex)));
-						Parent->EnqueueTickTask(
+						Parent->EnqueueFoliageTickTask(
 							[ChunkedTransforms = MoveTemp(ChunkedTransforms), HISM]()
 							{
 								HISM->AddInstances(
@@ -501,14 +639,21 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 				}
 				else
 				{
-					HISM->AddInstances(
-						Transforms, false, true
-					);
+					Parent->EnqueueFoliageTickTask([HISM, Transforms]()
+					{
+						HISM->AddInstances(
+							Transforms, false, true
+						);
+					});
 				}
+
+				// Executes first
+				Parent->EnqueueFoliageTickTask([HISM]()
+				{
+					HISM->ClearInstances();
+				});
 			}
 		}
-
-		bReadyToUpdate = true;
 	});
 }
 

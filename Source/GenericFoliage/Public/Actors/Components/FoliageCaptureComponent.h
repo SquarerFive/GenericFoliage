@@ -36,17 +36,24 @@ public:
 		UTextureRenderTarget2D* InSceneNormalRT,
 		UTextureRenderTarget2D* InSceneDepthRT
 	);
-	
+
+	/** Captures the scene */
 	void Capture();
 
+	/** Entry point to our foliage spawner */
 	void Compute();
 
+	/** Called at the end of the capture, sets any shared variables here to null */
 	void Finish();
 
 	/** Creates our render targets. Only used here if bIsUsingSharedResources is not true. */ 
 	void SetupTextureTargets();
 
+	/** Is this component ready to be updated [foliage compute/capture]. False if an update is in progress */
 	bool IsReadyToUpdate() const;
+
+	/** Sets the tile size in cm */
+	void SetDiameter(float InNewDiameter);
 
 	ULidarPointCloudComponent* ResolvePointCloudComponent();
 	
@@ -78,8 +85,11 @@ public:
 	UPROPERTY(Transient)
 	ULidarPointCloudComponent* PointCloudComponent;
 
-	UPROPERTY()
+	UPROPERTY(Transient)
 	double Diameter =  200000.;
+
+	UPROPERTY(Transient)
+	FBox BoundingBox;
 
 	UPROPERTY(VisibleAnywhere, Category = "ProceduralFoliage")
 	double DistanceAboveSurface = 2000.0;

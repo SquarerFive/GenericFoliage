@@ -44,9 +44,16 @@ private:
 
 	TArray<UFoliageCaptureComponent*> GetFoliageCaptureComponents() const;
 
+	void UpdateNearestTileID(const FVector& InWorldLocation);
+	
+	TArray<FIntPoint> GetBuildingTiles() const;
+
+	int32 GetTotalInstanceCount() const;
+
 public:
 
-	void EnqueueTickTask(TFunction<void()>&& InFunc);
+	void EnqueueCaptureTickTask(TFunction<void()>&& InFunc);
+	void EnqueueFoliageTickTask(TFunction<void()>&& InFunc);
 	
 	/** Transforms */
 
@@ -64,13 +71,35 @@ public:
 	/** Sets the capture components to only capture these specific actors */
 	virtual void SetShowOnlyActors(TArray<AActor*> InShowOnlyActors);
 
+public:
+#pragma region Blueprint Exposed Functions
+	UFUNCTION(BlueprintCallable, Category = "ProceduralFoliage")
+	void RefreshFoliage();
+
+#pragma endregion 
+
 #pragma region Properties
 public:
 	UPROPERTY(EditAnywhere, Category = "ProceduralFoliage")
 	TArray<UGenericFoliageType*> FoliageTypes;
 
+	/** World size of each tile  */
+	UPROPERTY(EditAnywhere, Category = "ProceduralFoliage")
+	float Diameter = 200000.0;
+
+	UPROPERTY(EditAnywhere, Category = "ProceduralFoliage", meta = (ClampMin=64, ClampMax=1024, UIMin=64, UIMax=1024))
+	int32 TilePixelSize = 512;
+
 	UPROPERTY(Transient)
 	TMap<FIntPoint, UFoliageInstancedMeshPool*> TileInstancedMeshPools;
+
+	/** ID of the tile nearest to the camera */
+	UPROPERTY(Transient)
+	FIntPoint NearestTileID;
+
+	/** ID of the tile nearest to the camera */
+	UPROPERTY(Transient)
+	bool bHasNearestTile = false;
 	
 private:
 	UPROPERTY(EditAnywhere, Category = "ProceduralFoliage")
@@ -90,9 +119,12 @@ private:
 
 	float UpdateFrequency = 0.2f;
 	float UpdateTime = 0.f;
+	FIntPoint LastNearestTileID;
+	bool bForceUpdate = false;
 
 private:
 	bool bUsingSharedResources = true;
-	TArray<TFunction<void()>> TickQueue;
+	TArray<TFunction<void()>> CaptureTickQueue;
+	TArray<TFunction<void()>> FoliageTickQueue;
 #pragma endregion 
 };

@@ -39,6 +39,15 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	FVector Max = FVector(1.0);
 
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	bool bRandomX = true;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	bool bRandomY = true;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	bool bRandomZ = true;
+
 	FVector GetRandom(const FRandomStream& RandStream) const
 	{
 		if (Min == Max)
@@ -46,7 +55,46 @@ public:
 			return Min;
 		}
 
-		return FMath::Lerp(Min, Max, RandStream.FRand());
+		return FVector(
+			bRandomX ? RandStream.FRandRange(Min.X, Max.X) : 0.0,
+			bRandomY ? RandStream.FRandRange(Min.Y, Max.Y) : 0.0,
+			bRandomZ ? RandStream.FRandRange(Min.Z, Max.Z) : 0.0
+		);
+	}
+};
+
+USTRUCT(BlueprintType)
+struct FRotatorInterval
+{
+	GENERATED_BODY()
+public:
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	FRotator Min = FRotator::ZeroRotator;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	FRotator Max = FRotator(360.0, 360.0, 360.0);
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	bool bRandomYaw = true;
+	
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	bool bRandomPitch = false;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	bool bRandomRoll = false;
+
+	FRotator GetRandom(const FRandomStream& RandStream) const
+	{
+		if (Min == Max)
+		{
+			return Min;
+		}
+
+		return FRotator(
+			bRandomPitch ? RandStream.FRandRange(Min.Pitch, Max.Pitch) : 0.0,
+			bRandomYaw ? RandStream.FRandRange(Min.Yaw, Max.Yaw) : 0.0,
+			bRandomRoll ? RandStream.FRandRange(Min.Roll, Max.Roll) : 0.0
+		);
 	}
 };
 
@@ -97,6 +145,14 @@ public:
 	/** Should we enable collision? */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
 	TEnumAsByte<ECollisionEnabled::Type> IsCollisionEnabled;
+
+	/** If enabled, a random rotator will initially be applied to each instance */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
+	bool bEnableRandomRotation = false;
+
+	/** Range of angles to randomly apply */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General, meta = (EditCondition="bEnableRandomRotation"))
+	FRotatorInterval RotatorRange;
 	
 public:
 	UFUNCTION()
@@ -104,6 +160,9 @@ public:
 
 	UFUNCTION()
 	FVector GetRandomScale() const;
+	
+	UFUNCTION()
+	FRotator GetRandomRotator() const;
 	
 private:
 	UPROPERTY()

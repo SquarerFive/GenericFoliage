@@ -2,12 +2,15 @@
 
 
 #include "Actors/GenericFoliageActor.h"
+
+#include "GenericFoliage.h"
 #include "Actors/Components/FoliageCaptureComponent.h"
 #include "Actors/Components/FoliageInstancedMeshPool.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "Kismet/KismetSystemLibrary.h"
 
 #if WITH_EDITOR
 #include "Editor.h"
@@ -35,21 +38,20 @@ AGenericFoliageActor::AGenericFoliageActor()
 			UFoliageInstancedMeshPool* InstancedMeshPool = CreateDefaultSubobject<UFoliageInstancedMeshPool>(
 				FName(FString::Printf(TEXT("%i%i_FoliageISMPool"), x, y)), true);
 
-			// only enable collision on the nearest tile to the camera
 			if (x == 0 && y == 0)
 			{
 				InstancedMeshPool->bEnableCollision = true;
-			} else
+			}
+			else
 			{
 				InstancedMeshPool->bEnableCollision = false;
 			}
-			
+
 			TileInstancedMeshPools.Add(FIntPoint(x, y), InstancedMeshPool);
 		}
 	}
 
-
-	SetupTextureTargets();
+	bAllowTickBeforeBeginPlay = false;
 }
 
 // Called when the game starts or when spawned
@@ -70,6 +72,13 @@ void AGenericFoliageActor::OnConstruction(const FTransform& Transform)
 	Super::OnConstruction(Transform);
 
 	RebuildInstancedMeshPool();
+	SetupTextureTargets();
+	UE_LOG(LogGenericFoliage, Display, TEXT("Called construction script"));
+
+	for (UFoliageCaptureComponent* CaptureComponent: GetFoliageCaptureComponents())
+	{
+		CaptureComponent->SetDiameter(Diameter);
+	}
 }
 
 #if WITH_EDITOR
@@ -77,18 +86,29 @@ void AGenericFoliageActor::PostEditChangeProperty(FPropertyChangedEvent& Propert
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 
-	if (bDisableUpdates)
+	bool bUpdateFoliage = false;
+
+	for (UFoliageCaptureComponent* CaptureComponent : GetFoliageCaptureComponents())
 	{
-		for (UFoliageCaptureComponent* CaptureComponent : GetFoliageCaptureComponents())
+		if (IsValid(CaptureComponent))
 		{
-			if (IsValid(CaptureComponent))
+			if (CaptureComponent->Diameter != Diameter)
 			{
-				if (IsValid(CaptureComponent->PointCloudComponent->GetPointCloud()))
-				{
-					CaptureComponent->PointCloudComponent->GetPointCloud()->Initialize(FBox(FVector(0.0), FVector(100.0)));
-				}
-			}
+				bUpdateFoliage = true;
+			} 
+			CaptureComponent->SetDiameter(Diameter);
 		}
+	}
+
+	if (TilePixelSize != SceneNormalRT->SizeX)
+	{
+		SetupTextureTargets();
+		bUpdateFoliage = true;
+	}
+
+	if (bUpdateFoliage)
+	{
+		bForceUpdate = true;
 	}
 }
 #endif
@@ -98,7 +118,25 @@ void AGenericFoliageActor::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	if (UpdateTime > UpdateFrequency && !bDisableUpdates)
+	// Debug
+	TArray<FString> TilesCurrentlyBuilding;
+	for (const FIntPoint& Point: GetBuildingTiles())
+	{
+		TilesCurrentlyBuilding.Add(Point.ToString());
+	}
+
+	int32 InstanceCount = GetTotalInstanceCount();
+
+	GEngine->AddOnScreenDebugMessage(
+		-1, DeltaTime, FColor::Red, FString::Printf(
+			TEXT("%s - Tiles building: [%s] - Instance count: %i"),
+			*GetName(), *FString::Join(TilesCurrentlyBuilding, TEXT(", ")),
+			InstanceCount
+		)
+	);
+	// __
+
+	if (UpdateTime > UpdateFrequency && !bDisableUpdates && IsReadyToUpdate())
 	{
 		UpdateTime = 0.f;
 
@@ -110,14 +148,17 @@ void AGenericFoliageActor::Tick(float DeltaTime)
 		if (bHasCamera)
 		{
 			CameraLocation = AdjustWorldPositionHeightToPlanet(CameraLocation, 2000);
+			UpdateNearestTileID(CameraLocation);
 
-			if (FVector::Distance(CameraLocation, LastUpdatePosition) > 2 * 100000)
+			if (FVector::Distance(CameraLocation, LastUpdatePosition) > Diameter || bForceUpdate)
 			{
 				LastUpdatePosition = CameraLocation;
-				TickQueue.Empty();
+				CaptureTickQueue.Empty();
+				FoliageTickQueue.Empty();
+
 				for (int32 Index = 0; Index < GetRootComponent()->GetNumChildrenComponents(); ++Index)
 				{
-					TickQueue.Emplace([this, Index, CameraLocation]()
+					CaptureTickQueue.Emplace([this, Index, CameraLocation]()
 					{
 						UFoliageCaptureComponent* CaptureComponent = Cast<UFoliageCaptureComponent>(
 							GetRootComponent()->GetChildComponent(Index));
@@ -146,6 +187,7 @@ void AGenericFoliageActor::Tick(float DeltaTime)
 						}
 					});
 				}
+				bForceUpdate = false;
 			}
 		}
 	}
@@ -154,12 +196,17 @@ void AGenericFoliageActor::Tick(float DeltaTime)
 		UpdateTime += DeltaTime;
 	}
 
-	if (TickQueue.Num() > 0)
+	if (CaptureTickQueue.Num() > 0)
 	{
 		if (IsReadyToUpdate())
 		{
-			TickQueue.Pop()();
+			CaptureTickQueue.Pop()();
 		}
+	}
+
+	if (FoliageTickQueue.Num() > 0)
+	{
+		FoliageTickQueue.Pop()();
 	}
 }
 
@@ -208,34 +255,39 @@ void AGenericFoliageActor::SetupTextureTargets()
 {
 	if (bUsingSharedResources)
 	{
-		SceneColourRT = NewObject<UTextureRenderTarget2D>(this, "SceneColourRT", RF_Transient);
+		auto MakeName = [&](FString InName)
+		{
+			return FName(*FString::Printf(TEXT("%s_%s_%i"), *InName, *GetName(), TilePixelSize));
+		};
+		
+		SceneColourRT = NewObject<UTextureRenderTarget2D>(this, MakeName("SceneColourRT"), RF_Transient);
 		check(SceneColourRT);
 
-		SceneColourRT->InitCustomFormat(512, 512, EPixelFormat::PF_B8G8R8A8, true);
+		SceneColourRT->InitCustomFormat(TilePixelSize, TilePixelSize, EPixelFormat::PF_B8G8R8A8, true);
 		SceneColourRT->RenderTargetFormat = RTF_RGBA8;
 		SceneColourRT->UpdateResourceImmediate(true);
 
-		SceneDepthRT = NewObject<UTextureRenderTarget2D>(this, "SceneDepthRT", RF_Transient);
+		SceneDepthRT = NewObject<UTextureRenderTarget2D>(this, MakeName("SceneDepthRT"), RF_Transient);
 		check(SceneDepthRT);
 
 		SceneDepthRT->RenderTargetFormat = RTF_R32f;
-		SceneDepthRT->InitAutoFormat(512, 512);
+		SceneDepthRT->InitAutoFormat(TilePixelSize, TilePixelSize);
 		SceneDepthRT->UpdateResourceImmediate(true);
 
-		SceneNormalRT = NewObject<UTextureRenderTarget2D>(this, "SceneNormalRT", RF_Transient);
+		SceneNormalRT = NewObject<UTextureRenderTarget2D>(this, MakeName("SceneNormalRT"), RF_Transient);
 		check(SceneNormalRT);
-		
+
 		SceneNormalRT->RenderTargetFormat = RTF_RGBA8;
 		SceneNormalRT->SRGB = true;
 		SceneNormalRT->LODGroup = TextureGroup::TEXTUREGROUP_WorldNormalMap;
-		SceneNormalRT->InitAutoFormat(512, 512);
+		SceneNormalRT->InitAutoFormat(TilePixelSize, TilePixelSize);
 		SceneNormalRT->UpdateResourceImmediate(true);
 	}
 }
 
 void AGenericFoliageActor::RebuildInstancedMeshPool()
 {
-	TickQueue.Emplace([this]()
+	CaptureTickQueue.Emplace([this]()
 	{
 		for (auto& MeshPoolPair : TileInstancedMeshPools)
 		{
@@ -256,14 +308,81 @@ TArray<UFoliageCaptureComponent*> AGenericFoliageActor::GetFoliageCaptureCompone
 
 	for (USceneComponent* Comp : ChildComponents)
 	{
-		Result.Add(Cast<UFoliageCaptureComponent>(Comp));
+		UFoliageCaptureComponent* CastedComp = Cast<UFoliageCaptureComponent>(Comp);
+		if (IsValid(CastedComp))
+		{
+			Result.Add(CastedComp);
+		}
 	}
 	return Result;
 }
 
-void AGenericFoliageActor::EnqueueTickTask(TFunction<void()>&& InFunc)
+void AGenericFoliageActor::UpdateNearestTileID(const FVector& InWorldLocation)
 {
-	TickQueue.Emplace(InFunc);
+	bool bHasAnyTile = false;
+	for (const UFoliageCaptureComponent* CaptureComponent : GetFoliageCaptureComponents())
+	{
+		const FVector TransformedPosition = CaptureComponent->GetComponentTransform().
+		                                                      InverseTransformPosition(InWorldLocation);
+		if (CaptureComponent->BoundingBox.IsInsideXY(TransformedPosition))
+		{
+			NearestTileID = CaptureComponent->TileID;
+			if (LastNearestTileID != NearestTileID)
+			{
+				TileInstancedMeshPools[NearestTileID]->ToggleCollision(true);
+			}
+			LastNearestTileID = NearestTileID;
+			bHasNearestTile = true;
+			bHasAnyTile = true;
+		}
+		else
+		{
+			TileInstancedMeshPools[CaptureComponent->TileID]->ToggleCollision(false);
+		}
+	}
+
+	if (!bHasAnyTile)
+	{
+		bHasNearestTile = false;
+	}
+}
+
+TArray<FIntPoint> AGenericFoliageActor::GetBuildingTiles() const
+{
+	TArray<FIntPoint> Result;
+	for (UFoliageCaptureComponent* CaptureComponent: GetFoliageCaptureComponents())
+	{
+		if (!CaptureComponent->IsReadyToUpdate())
+		{
+			Result.Add(CaptureComponent->TileID);
+		}
+	}
+	return Result;
+}
+
+int32 AGenericFoliageActor::GetTotalInstanceCount() const
+{
+	int32 Count = 0;
+
+	for (const auto& MeshPoolPair: TileInstancedMeshPools)
+	{
+		if (IsValid(MeshPoolPair.Value))
+		{
+			Count += MeshPoolPair.Value->GetTotalInstanceCount();
+		}
+	}
+
+	return Count;
+}
+
+void AGenericFoliageActor::EnqueueCaptureTickTask(TFunction<void()>&& InFunc)
+{
+	CaptureTickQueue.Emplace(InFunc);
+}
+
+void AGenericFoliageActor::EnqueueFoliageTickTask(TFunction<void()>&& InFunc)
+{
+	FoliageTickQueue.Emplace(InFunc);
 }
 
 FVector AGenericFoliageActor::WorldToLocalPosition(const FVector& InWorldLocation) const
@@ -308,4 +427,9 @@ void AGenericFoliageActor::SetShowOnlyActors(TArray<AActor*> InShowOnlyActors)
 				ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
 		}
 	}
+}
+
+void AGenericFoliageActor::RefreshFoliage()
+{
+	bForceUpdate = true;
 }
