@@ -27,3 +27,8 @@ FRotator UGenericFoliageType::GetRandomRotator() const
 {
 	return RotatorRange.GetRandom(RandomStream);
 }
+
+FVector UGenericFoliageType::GetRandomLocalOffset() const
+{
+	return RandomLocalOffsetRange.GetRandom(RandomStream);
+}

@@ -118,9 +118,17 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
 	float Density = 1.f;
 
-	/** Local offset applied to each instance */
+	/** Whether a random local offset should be applied */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
+	bool bRandomLocalOffset = false;
+	
+	/** Local offset applied to each instance */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General, meta = (EditCondition="!bRandomLocalOffset"))
 	FVector LocalOffset = FVector::ZeroVector;
+
+	/** Random local offset range applied to each instance */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General, meta = (EditCondition="bRandomLocalOffset"))
+	FVectorInterval RandomLocalOffsetRange;
 
 	/** Minimum and maximum scale applied to each instance */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
@@ -153,6 +161,10 @@ public:
 	/** Range of angles to randomly apply */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General, meta = (EditCondition="bEnableRandomRotation"))
 	FRotatorInterval RotatorRange;
+
+	/** Maximum slope angle (in degrees) where the foliage will spawn. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
+	float SlopeAngleThreshold = 45.f;
 	
 public:
 	UFUNCTION()
@@ -163,6 +175,9 @@ public:
 	
 	UFUNCTION()
 	FRotator GetRandomRotator() const;
+
+	UFUNCTION()
+	FVector GetRandomLocalOffset() const;
 	
 private:
 	UPROPERTY()

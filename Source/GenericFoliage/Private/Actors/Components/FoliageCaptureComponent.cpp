@@ -136,44 +136,84 @@ void UFoliageCaptureComponent::Compute()
 				return;
 			}
 
-			FRHITexture2D* SceneColourRHI = SceneColourRT_Target2D->GetRenderTargetResource()->
-			                                                        GetTexture2DRHI();
-			FRHITexture2D* SceneNormalRHI = SceneNormalRT_Target2D->GetRenderTargetResource()->GetTexture2DRHI();
-
 			TArray<FLinearColor> SceneColourData;
 			TArray<FLinearColor> SceneNormalData;
 
-			// Get our shader
-			FGenericFoliageComputeModule& ComputeModule = FModuleManager::GetModuleChecked<
-				FGenericFoliageComputeModule>(TEXT("GenericFoliageCompute"));
+			int32 Width = SceneColourRT_Target2D->SizeX, Height = SceneDepthRT_Target2D->SizeY;
 
-			// If we support using ReadSurfaceData, then call it as it is slightly faster. otherwise call the CS
-			if (SceneColourRHI->GetFormat() == EPixelFormat::PF_B8G8R8A8)
+			FRHIGPUTextureReadback SceneColourReadback("SceneColourReadback");
+			FRHIGPUTextureReadback SceneNormalReadback("SceneNormalReadback");
 			{
-				RHICmdList.ReadSurfaceData(
-					SceneColourRHI,
-					FIntRect(0, 0, SceneColourRT_Target2D->SizeX, SceneColourRT_Target2D->SizeY),
-					SceneColourData,
-					FReadSurfaceDataFlags{ERangeCompressionMode::RCM_MinMaxNorm}
-				);
-			}
-			else
-			{
-				ComputeModule.CopyRenderTargetToCpu(RHICmdList, SceneColourRT_Target2D, SceneColourData);
-			}
+				FRHITexture2D* ColourRT_RHI = SceneColourRT_Target2D->GetRenderTargetResource()->GetTexture2DRHI();
+				FRHITexture2D* NormalRT_RHI = SceneNormalRT_Target2D->GetRenderTargetResource()->GetTexture2DRHI();
 
-			RHICmdList.ReadSurfaceData(
-				SceneNormalRHI,
-				FIntRect(0, 0, SceneNormalRHI->GetSizeX(), SceneNormalRHI->GetSizeY()),
-				SceneNormalData,
-				FReadSurfaceDataFlags{ERangeCompressionMode::RCM_MinMaxNorm}
-			);
+				SceneColourReadback.EnqueueCopy(RHICmdList, ColourRT_RHI);
+
+				// Copy scene colour
+				int32 Pitch;
+				void* Buffer = nullptr;
+
+				Buffer = SceneColourReadback.Lock(Pitch);
+				check(Buffer != nullptr);
+				// must be BGRA 8 bit
+				check(Pitch == Width);
+
+				TArray<FColor> TempColourArray;
+				TempColourArray.SetNumUninitialized(Width * Height);
+
+				FMemory::Memcpy(TempColourArray.GetData(), Buffer, Width * Height * sizeof(FColor));
+
+				SceneColourData.SetNumUninitialized(Width * Height);
+
+				ParallelFor(TempColourArray.Num(), [&](int32 Index)
+				{
+					SceneColourData[Index] = TempColourArray[Index].ReinterpretAsLinear();
+				});
+
+				SceneColourReadback.Unlock();
+
+				// Copy normals
+				SceneNormalReadback.EnqueueCopy(RHICmdList, NormalRT_RHI);
+
+				Buffer = SceneNormalReadback.Lock(Pitch);
+				check(Buffer != nullptr);
+				// must be BGRA 8 bit
+				check(Pitch == Width);
+
+				TempColourArray.Reset(Width * Height);
+
+				FMemory::Memcpy(TempColourArray.GetData(), Buffer, Width * Height * sizeof(FColor));
+
+				SceneNormalData.SetNumUninitialized(Width * Height);
+
+				ParallelFor(TempColourArray.Num(), [&](int32 Index)
+				{
+					SceneNormalData[Index] = TempColourArray[Index].ReinterpretAsLinear();
+				});
+
+				SceneNormalReadback.Unlock();
+			}
 
 			TArray<float> SceneDepthValues;
 
-			ComputeModule.CopyRenderTargetToCpu(RHICmdList, SceneDepthRT_Target2D, SceneDepthValues);
+			//			ComputeModule.CopyRenderTargetToCpu(RHICmdList, SceneDepthRT_Target2D, SceneDepthValues);
 
-			int32 Width = SceneColourRT_Target2D->SizeX, Height = SceneDepthRT_Target2D->SizeY;
+			{
+				FRHITexture2D* DepthRT_RHI = SceneDepthRT_Target2D->GetRenderTargetResource()->GetTexture2DRHI();
+				FRHIGPUTextureReadback DepthReadback("DepthReadback");
+
+				DepthReadback.EnqueueCopy(RHICmdList, DepthRT_RHI, FResolveRect());
+
+				int32 Pitch;
+				void* Buffer = DepthReadback.Lock(Pitch);
+				check(Buffer != nullptr);
+
+				SceneDepthValues.SetNumUninitialized(DepthRT_RHI->GetSizeX() * DepthRT_RHI->GetSizeY());
+
+				FMemory::Memcpy(SceneDepthValues.GetData(), Buffer, SceneDepthValues.Num() * sizeof(float));
+
+				DepthReadback.Unlock();
+			}
 
 			Async(EAsyncExecution::Thread, [
 				      this, Width, Height,
@@ -442,11 +482,21 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 				);;
 
 				const FLinearColor& ColourAtPoint = SceneColourData[Index] * 15;
-				const FRotator NormalAtPoint = FVector(SceneNormalData[Index].Desaturate(-0.5f)).Rotation();
+				const FVector NormalAtPoint = FVector(SceneNormalData[Index]).GetSafeNormal();
+				const FRotator RotatorAtPoint = NormalAtPoint.Rotation();
 
 				FRotator AbsoluteRotator = FoliageType->bAlignToSurfaceNormal
-					                           ? NormalAtPoint
+					                           ? RotatorAtPoint
 					                           : AbsoluteTransform.Rotator();
+
+				const FVector AbsolutePosition = AbsoluteTransform.TransformPosition(
+					RelativePosition + (FoliageType->bRandomLocalOffset
+						                    ? FoliageType->GetRandomLocalOffset()
+						                    : FoliageType->LocalOffset));
+
+				const double Angle = FMath::RadiansToDegrees(FMath::Acos(
+					NormalAtPoint | AbsoluteTransform.GetRotation().GetUpVector()
+				));
 
 				if (FoliageType->bEnableRandomRotation)
 				{
@@ -454,12 +504,13 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 						Rotator();
 				}
 
-				if (FoliageType->SpawnConstraint.IntersectsRGB(ColourAtPoint))
+				if (FoliageType->SpawnConstraint.IntersectsRGB(ColourAtPoint) && Angle <= FoliageType->
+					SlopeAngleThreshold)
 				{
 					TransformsArray[Index] = (
 						FTransform(
 							AbsoluteRotator,
-							AbsoluteTransform.TransformPosition(RelativePosition + FoliageType->LocalOffset),
+							AbsolutePosition,
 							FoliageType->GetRandomScale()
 						)
 					);
@@ -513,8 +564,10 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 								{
 									const FLinearColor ColourAtPoint = SampleGridColour(
 										SceneColourData, NewX, NewY, Width, Height) * 15.f;
-									const FRotator NormalAtPoint = FVector(SampleGridColour(
-										SceneNormalData, NewX, NewY, Width, Height).Desaturate(-0.5f)).Rotation();
+									const FVector NormalAtPoint = FVector(SampleGridColour(
+										SceneNormalData, NewX, NewY, Width, Height)).GetSafeNormal();
+									const FRotator RotatorAtPoint = NormalAtPoint.Rotation();
+
 									const float DepthAtPoint = SampleGridFloat(
 										SceneDepthData, NewX, NewY, Width, Height);
 
@@ -527,21 +580,30 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 									);
 
 									FRotator AbsoluteRotator = FoliageType->bAlignToSurfaceNormal
-										                           ? NormalAtPoint
-										                           : AbsoluteTransform.Rotator();
+											   ? RotatorAtPoint
+											   : AbsoluteTransform.Rotator();
+
+									const FVector AbsolutePosition = AbsoluteTransform.TransformPosition(
+										RelativePosition + (FoliageType->bRandomLocalOffset
+																? FoliageType->GetRandomLocalOffset()
+																: FoliageType->LocalOffset));
+
+									const double Angle = FMath::RadiansToDegrees(FMath::Acos(
+										NormalAtPoint | AbsoluteTransform.GetRotation().GetUpVector()
+									));
+									
 									if (FoliageType->bEnableRandomRotation)
 									{
 										AbsoluteRotator = (FoliageType->GetRandomRotator().Quaternion() *
 											AbsoluteRotator.Quaternion()).Rotator();
 									}
 
-									if (FoliageType->SpawnConstraint.IntersectsRGB(ColourAtPoint))
+									if (FoliageType->SpawnConstraint.IntersectsRGB(ColourAtPoint) && Angle <= FoliageType->SlopeAngleThreshold)
 									{
 										FoliageTransforms[FoliageType->GetGuid()].Emplace(
 											FTransform(
 												AbsoluteRotator,
-												AbsoluteTransform.TransformPosition(
-													RelativePosition + FoliageType->LocalOffset),
+												AbsolutePosition,
 												FoliageType->GetRandomScale()
 											)
 										);
@@ -570,25 +632,34 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 							);
 
 							const FLinearColor& ColourAtPoint = SceneColourData[i] * 15;
-							const FRotator NormalAtPoint = FVector(SceneNormalData[i].Desaturate(-0.5f)).Rotation();
+							const FVector NormalAtPoint = FVector(SceneNormalData[i]).GetSafeNormal();
+							const FRotator RotatorAtPoint = NormalAtPoint.Rotation();
 
 							FRotator AbsoluteRotator = FoliageType->bAlignToSurfaceNormal
-								                           ? NormalAtPoint
+								                           ? RotatorAtPoint
 								                           : AbsoluteTransform.Rotator();
+							
+							const FVector AbsolutePosition = AbsoluteTransform.TransformPosition(
+					RelativePosition + (FoliageType->bRandomLocalOffset
+											? FoliageType->GetRandomLocalOffset()
+											: FoliageType->LocalOffset));
 
 							if (FoliageType->bEnableRandomRotation)
 							{
 								AbsoluteRotator = (FoliageType->GetRandomRotator().Quaternion() * AbsoluteRotator.
 									Quaternion()).Rotator();
 							}
+							
+							const double Angle = FMath::RadiansToDegrees(FMath::Acos(
+										NormalAtPoint | AbsoluteTransform.GetRotation().GetUpVector()
+									));
 
-							if (FoliageType->SpawnConstraint.IntersectsRGB(ColourAtPoint))
+							if (FoliageType->SpawnConstraint.IntersectsRGB(ColourAtPoint) && Angle <= FoliageType->SlopeAngleThreshold)
 							{
 								FoliageTransforms[FoliageType->GetGuid()].Emplace(
 									FTransform(
 										AbsoluteRotator,
-										AbsoluteTransform.
-										TransformPosition(RelativePosition + FoliageType->LocalOffset),
+										AbsolutePosition,
 										FoliageType->GetRandomScale()
 									)
 								);
@@ -636,10 +707,7 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 		       (EndPrepareSpawn - StartPrepareSpawn).GetTotalSeconds());
 	}
 	*/
-	
 
-
-	
 	AsyncTask(ENamedThreads::GameThread, [this, FoliageTransforms = MoveTemp(FoliageTransforms), Parent]()
 	{
 		if (!IsValid(this))
@@ -670,7 +738,7 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 
 				const int32 NumInstancesPerChunk = 25000;
 				const int32 ExpectedChunks = Transforms.Num() / NumInstancesPerChunk;
-				
+
 				HISM->bAutoRebuildTreeOnInstanceChanges = false;
 
 				// Executes last
@@ -714,7 +782,6 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 				{
 					HISM->ClearInstances();
 				});
-				
 			}
 		}
 	});
