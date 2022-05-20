@@ -4,7 +4,6 @@
 #include "Actors/Components/FoliageCaptureComponent.h"
 
 #include "GenericFoliage.h"
-#include "GenericFoliageCompute.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Actors/GenericFoliageActor.h"

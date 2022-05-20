@@ -21,11 +21,6 @@
 			"LoadingPhase": "Default"
 		},
 		{
-			"Name": "GenericFoliageCompute",
-			"Type": "Runtime",
-			"LoadingPhase": "PostConfigInit"
-		},
-		{
 			"Name": "GenericFoliageEditor",
 			"Type": "Editor",
 			"LoadingPhase": "PostEngineInit"

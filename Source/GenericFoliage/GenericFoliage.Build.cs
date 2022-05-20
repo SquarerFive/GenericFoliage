@@ -46,9 +46,7 @@ public class GenericFoliage : ModuleRules
 				
 				"RHI",
 				"RenderCore",
-				"Projects",
-				
-				"GenericFoliageCompute"
+				"Projects"
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);
