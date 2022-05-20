@@ -10,8 +10,43 @@
 #include "Actors/GenericFoliageActor.h"
 #include "Async/Async.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
+#include "Engine/InstancedStaticMesh.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet/KismetRenderingLibrary.h"
+
+struct FTiledFoliageBuilder
+{
+	FTransform RelativeTransform;
+	int32 InstanceCount;
+	TArray<FTransform> Transforms;
+
+	FTiledFoliageBuilder(
+		const FTransform& InRelativeTransform,
+		const FBox& InMeshBox
+	) : RelativeTransform(InRelativeTransform),
+	    InstanceCount(0)
+	{
+	}
+
+	void Build(const TArray<FTransform>& InTransforms)
+	{
+		InstanceCount = InTransforms.Num();
+
+		Transforms.SetNumUninitialized(InstanceCount);
+		ParallelFor(InstanceCount, [&](int32 Index)
+		{
+			Transforms[Index] = InTransforms[Index].GetRelativeTransform(RelativeTransform);
+		});
+	}
+
+	void ApplyToHISM(UHierarchicalInstancedStaticMeshComponent* HISM)
+	{
+		check(IsInGameThread());
+		check(InstanceCount > 0);
+		HISM->PreAllocateInstancesMemory(Transforms.Num());
+		HISM->AddInstances(Transforms, false);
+	}
+};
 
 // Sets default values for this component's properties
 UFoliageCaptureComponent::UFoliageCaptureComponent()
@@ -66,14 +101,6 @@ UFoliageCaptureComponent::UFoliageCaptureComponent()
 	SceneNormalCapture->bCaptureOnMovement = false;
 
 	SceneNormalCapture->SetupAttachment(this);
-
-	if (!bIsUsingSharedResources)
-	{
-		SetupTextureTargets();
-
-		SceneColourCapture->TextureTarget = SceneColourRT;
-		SceneDepthCapture->TextureTarget = SceneDepthRT;
-	}
 }
 
 UFoliageCaptureComponent::~UFoliageCaptureComponent()
@@ -90,6 +117,8 @@ void UFoliageCaptureComponent::Compute()
 	UTextureRenderTarget2D* SceneColourRT_Target2D = SceneColourRT;
 	UTextureRenderTarget2D* SceneDepthRT_Target2D = SceneDepthRT;
 	UTextureRenderTarget2D* SceneNormalRT_Target2D = SceneNormalRT;
+
+	this->Builders = CreateFoliageBuilders();
 
 	ENQUEUE_RENDER_COMMAND(FReadRenderTargets)(
 		[this, SceneColourRT_Target2D, SceneDepthRT_Target2D, SceneNormalRT_Target2D](
@@ -146,20 +175,17 @@ void UFoliageCaptureComponent::Compute()
 
 			int32 Width = SceneColourRT_Target2D->SizeX, Height = SceneDepthRT_Target2D->SizeY;
 
-			AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [
-				          this, Width, Height,
-				          SceneColourData = MoveTemp(SceneColourData),
-				          SceneNormalData = MoveTemp(SceneNormalData),
-				          SceneDepthValues = MoveTemp(SceneDepthValues)]()
-			          {
-				          FVector Right = GetRightVector();
-				          FVector Forward = GetForwardVector();
-				          const double ZoneWidth = Diameter / 2.0;
-				          Compute_Internal(SceneColourData, SceneNormalData, SceneDepthValues, Width, Height, FBox(
-					                           (GetComponentLocation() - (Right * ZoneWidth)) - (Forward * ZoneWidth),
-					                           (GetComponentLocation() + (Right * ZoneWidth)) + (Forward * ZoneWidth)
-				                           ));
-			          });
+			Async(EAsyncExecution::Thread, [
+				      this, Width, Height,
+				      SceneColourData = MoveTemp(SceneColourData),
+				      SceneNormalData = MoveTemp(SceneNormalData),
+				      SceneDepthValues = MoveTemp(SceneDepthValues)]() mutable
+			      {
+				      FVector Right = GetRightVector();
+				      FVector Forward = GetForwardVector();
+				      const double ZoneWidth = Diameter / 2.0;
+				      Compute_Internal(SceneColourData, SceneNormalData, SceneDepthValues, Width, Height);
+			      });
 		}
 
 	);
@@ -231,12 +257,12 @@ void UFoliageCaptureComponent::Finish()
 	}
 }
 
-void UFoliageCaptureComponent::SetupTextureTargets()
+void UFoliageCaptureComponent::SetupTextureTargets(int32 TextureSize)
 {
 	SceneColourRT = NewObject<UTextureRenderTarget2D>(this, CreateComponentName(TEXT("SceneColourRT")), RF_Transient);
 	check(SceneColourRT);
 
-	SceneColourRT->InitCustomFormat(512, 512, EPixelFormat::PF_B8G8R8A8, true);
+	SceneColourRT->InitCustomFormat(TextureSize, TextureSize, EPixelFormat::PF_B8G8R8A8, true);
 	SceneColourRT->RenderTargetFormat = RTF_RGBA8;
 	SceneColourRT->UpdateResourceImmediate(true);
 
@@ -244,20 +270,29 @@ void UFoliageCaptureComponent::SetupTextureTargets()
 	check(SceneDepthRT);
 
 	SceneDepthRT->RenderTargetFormat = RTF_R32f;
-	SceneDepthRT->InitAutoFormat(512, 512);
+	SceneDepthRT->InitAutoFormat(TextureSize, TextureSize);
 	SceneDepthRT->UpdateResourceImmediate(true);
 
 	SceneNormalRT = NewObject<UTextureRenderTarget2D>(this, "SceneNormalRT", RF_Transient);
 	check(SceneNormalRT);
 
 	SceneNormalRT->RenderTargetFormat = RTF_RGBA16f;
-	SceneNormalRT->InitAutoFormat(512, 512);
+	SceneNormalRT->InitAutoFormat(TextureSize, TextureSize);
 	SceneNormalRT->UpdateResourceImmediate(true);
+
+	SceneColourCapture->TextureTarget = SceneColourRT;
+	SceneDepthCapture->TextureTarget = SceneDepthRT;
+	SceneNormalCapture->TextureTarget = SceneNormalRT;
 }
 
 bool UFoliageCaptureComponent::IsReadyToUpdate() const
 {
 	return bReadyToUpdate;
+}
+
+bool UFoliageCaptureComponent::IsUsingSharedResources() const
+{
+	return bIsUsingSharedResources;
 }
 
 void UFoliageCaptureComponent::SetDiameter(float InNewDiameter)
@@ -283,7 +318,7 @@ ULidarPointCloudComponent* UFoliageCaptureComponent::ResolvePointCloudComponent(
 void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& SceneColourData,
                                                 const TArray<FLinearColor>& SceneNormalData,
                                                 const TArray<float>& SceneDepthData, int32 Width,
-                                                int32 Height, FBox WorldBounds)
+                                                int32 Height)
 {
 	if (!IsValid(this))
 	{
@@ -291,12 +326,11 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 		return;
 	}
 
-	
 
 	AGenericFoliageActor* Parent = Cast<AGenericFoliageActor>(GetOwner());
 	check(IsValid(Parent));
 
-	bool bCanUseParallel = false;
+	bool bCanUseParallel = true;
 
 	for (UGenericFoliageType* FoliageType : Parent->FoliageTypes)
 	{
@@ -568,6 +602,29 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 
 	auto EndPrepareSpawn = FDateTime::Now();
 
+	for (UGenericFoliageType* FoliageType : Parent->FoliageTypes)
+	{
+		FGuid Guid = FoliageType->GetGuid();
+
+		const TArray<FTransform>& Transforms = FoliageTransforms[Guid];
+		if (Builders[Guid].IsValid())
+		{
+			if (Transforms.Num() > 0)
+			{
+				Builders[Guid]->Build(Transforms);
+			}
+			else
+			{
+				// UE_LOG(LogGenericFoliage, Error, TEXT("No transforms (thread)"));
+			}
+		}
+		else
+		{
+			UE_LOG(LogGenericFoliage, Error, TEXT("Builder is not valid (thread)"));
+		}
+	}
+
+	/*
 	if (bEnableParallel)
 	{
 		UE_LOG(LogGenericFoliage, Display, TEXT("Time taken to compute foliage transforms (parallel): %f seconds"),
@@ -578,20 +635,24 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 		UE_LOG(LogGenericFoliage, Display, TEXT("Time taken to compute foliage transforms (standard): %f seconds"),
 		       (EndPrepareSpawn - StartPrepareSpawn).GetTotalSeconds());
 	}
+	*/
+	
 
+
+	
 	AsyncTask(ENamedThreads::GameThread, [this, FoliageTransforms = MoveTemp(FoliageTransforms), Parent]()
 	{
 		if (!IsValid(this))
 		{
 			return;
 		}
-		
+
 		// Execute last
 		Parent->EnqueueFoliageTickTask([this]()
 		{
 			bReadyToUpdate = true;
-		}); 
-		
+		});
+
 		for (UGenericFoliageType* FoliageType : Parent->FoliageTypes)
 		{
 			if (!IsValid(FoliageType))
@@ -600,6 +661,7 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 			}
 
 			const TArray<FTransform>& Transforms = FoliageTransforms[FoliageType->GetGuid()];
+
 			// UE_LOG(LogGenericFoliage, Display, TEXT("Adding Foliage: %i"), Transforms.Num());
 
 			if (Transforms.Num() > 0)
@@ -608,7 +670,7 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 
 				const int32 NumInstancesPerChunk = 25000;
 				const int32 ExpectedChunks = Transforms.Num() / NumInstancesPerChunk;
-
+				
 				HISM->bAutoRebuildTreeOnInstanceChanges = false;
 
 				// Executes last
@@ -652,9 +714,34 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 				{
 					HISM->ClearInstances();
 				});
+				
 			}
 		}
 	});
+}
+
+TMap<FGuid, TSharedPtr<FTiledFoliageBuilder>> UFoliageCaptureComponent::CreateFoliageBuilders() const
+{
+	AGenericFoliageActor* Parent = Cast<AGenericFoliageActor>(GetOwner());
+	check(IsValid(Parent));
+
+	TMap<FGuid, TSharedPtr<FTiledFoliageBuilder>> Result;
+
+	for (UGenericFoliageType* FoliageType : Parent->FoliageTypes)
+	{
+		// TODO: Is Grass
+		FGuid Guid = FoliageType->GetGuid();
+		Result.Emplace(
+			Guid,
+			MakeShareable(new
+				FTiledFoliageBuilder(
+					Parent->TileInstancedMeshPools[TileID]->HISMPool[Guid]->GetComponentTransform(),
+					FoliageType->FoliageMesh->GetBoundingBox()
+				))
+		);
+	}
+
+	return Result;
 }
 
 FName UFoliageCaptureComponent::CreateComponentName(const FString& ComponentName) const

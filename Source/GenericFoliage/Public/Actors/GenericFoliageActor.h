@@ -40,6 +40,8 @@ private:
 	
 	void SetupTextureTargets();
 
+	void SetupFoliageCaptureComponents();
+
 	void RebuildInstancedMeshPool();
 
 	TArray<UFoliageCaptureComponent*> GetFoliageCaptureComponents() const;
@@ -90,6 +92,22 @@ public:
 	UPROPERTY(EditAnywhere, Category = "ProceduralFoliage", meta = (ClampMin=64, ClampMax=1024, UIMin=64, UIMax=1024))
 	int32 TilePixelSize = 512;
 
+	// Number of tiles in the -x, +x and -y, +y dir;
+	UPROPERTY(EditAnywhere, Category = "ProceduralFoliage")
+	FIntPoint TileCount = FIntPoint(1, 1);
+
+	/** Foliage will only regenerate if the camera velocity is below this threshold  */
+	UPROPERTY(EditAnywhere, Category = "ProceduralFoliage")
+	double VelocityUpdateThreshold = 12500;
+
+	/** Maximum foliage tasks that can be run per tick */
+	UPROPERTY(EditAnywhere, Category = "Async", meta = (UIMin=1))
+	int32 FoliageTasksPerTick = 1;
+
+	/** Maximum capture tasks that can be run per tick */
+	UPROPERTY(EditAnywhere, Category = "Async", meta = (UIMin=1))
+	int32 CaptureTasksPerTick = 1;
+
 	UPROPERTY(Transient)
 	TMap<FIntPoint, UFoliageInstancedMeshPool*> TileInstancedMeshPools;
 
@@ -117,10 +135,11 @@ private:
 	UPROPERTY(Transient)
 	UTextureRenderTarget2D* SceneNormalRT;
 
-	float UpdateFrequency = 0.2f;
+	float UpdateFrequency = 0.05f;
 	float UpdateTime = 0.f;
 	FIntPoint LastNearestTileID;
 	bool bForceUpdate = false;
+	FVector LastCameraPosition = FVector::ZeroVector;
 
 private:
 	bool bUsingSharedResources = true;

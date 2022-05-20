@@ -47,10 +47,12 @@ public:
 	void Finish();
 
 	/** Creates our render targets. Only used here if bIsUsingSharedResources is not true. */ 
-	void SetupTextureTargets();
+	void SetupTextureTargets(int32 TextureSize);
 
 	/** Is this component ready to be updated [foliage compute/capture]. False if an update is in progress */
 	bool IsReadyToUpdate() const;
+
+	bool IsUsingSharedResources() const;
 
 	/** Sets the tile size in cm */
 	void SetDiameter(float InNewDiameter);
@@ -100,9 +102,10 @@ private:
 		const TArray<FLinearColor>& SceneNormalData,
 		const TArray<float>& SceneDepthData,
 		int32 Width,
-		int32 Height,
-		FBox WorldBounds
+		int32 Height
 	);
+
+	TMap<FGuid, TSharedPtr<struct FTiledFoliageBuilder>> CreateFoliageBuilders() const;
 
 	FName CreateComponentName(const FString& ComponentName) const;
 
@@ -115,4 +118,6 @@ private:
 	bool bReadyToUpdate = true;
 	UPROPERTY(Transient)
 	ULidarPointCloud* PointCloud;
+
+	TMap<FGuid, TSharedPtr<struct FTiledFoliageBuilder>> Builders;
 };

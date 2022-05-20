@@ -2,8 +2,6 @@
 
 
 #include "Actors/Components/FoliageInstancedMeshPool.h"
-
-#include "GenericFoliage.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 
 // Sets default values for this component's properties
@@ -60,17 +58,22 @@ void UFoliageInstancedMeshPool::RebuildHISMPool(const TArray<UGenericFoliageType
 		UHierarchicalInstancedStaticMeshComponent* HISM = NewObject<UHierarchicalInstancedStaticMeshComponent>(
 			GetOwner(), FName(*FString::Printf(TEXT("%s_HISM_Pooled"), *GetName())));
 		HISM->bAffectDynamicIndirectLighting = false;
+		HISM->bSelectable = false;
 		HISM->AttachToComponent(GetOwner()->GetRootComponent(),
 		                        FAttachmentTransformRules{EAttachmentRule::KeepWorld, false});
 		HISM->ClearInstances();
 		HISM->SetStaticMesh(FoliageType->FoliageMesh);
 		HISM->SetCullDistances(FoliageType->CullingDistanceRange.Min, FoliageType->CullingDistanceRange.Max);
-
-		if (!bEnableCollision || FoliageType->IsCollisionEnabled.GetValue() == ECollisionEnabled::NoCollision)
+		HISM->bCastStaticShadow = false;
+		
+		if (FoliageType->IsCollisionEnabled.GetValue() == ECollisionEnabled::NoCollision)
 		{
+			HISM->SetCollisionProfileName("NoCollision");
 			HISM->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 			HISM->SetCanEverAffectNavigation(false);
 			HISM->bDisableCollision = true;
+			HISM->bHasPerInstanceHitProxies = false;
+			
 		}
 		else
 		{
