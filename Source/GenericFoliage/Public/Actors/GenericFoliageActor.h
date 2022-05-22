@@ -75,7 +75,7 @@ public:
 
 public:
 #pragma region Blueprint Exposed Functions
-	UFUNCTION(BlueprintCallable, Category = "ProceduralFoliage")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "ProceduralFoliage")
 	void RefreshFoliage();
 
 #pragma endregion 

@@ -23,6 +23,18 @@ void UFoliageInstancedMeshPool::BeginPlay()
 	// ...
 }
 
+void UFoliageInstancedMeshPool::OnComponentDestroyed(bool bDestroyingHierarchy)
+{
+	Super::OnComponentDestroyed(bDestroyingHierarchy);
+
+	for (auto& HISMPair: HISMPool)
+	{
+		HISMPair.Value->ClearInstances();
+		HISMPair.Value->DestroyComponent();
+	}
+	HISMPool.Empty();
+}
+
 
 // Called every frame
 void UFoliageInstancedMeshPool::TickComponent(float DeltaTime, ELevelTick TickType,

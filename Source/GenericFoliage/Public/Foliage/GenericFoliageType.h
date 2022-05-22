@@ -17,7 +17,7 @@ struct FLinearColorInterval
 public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	FLinearColor Min;
-	
+
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	FLinearColor Max;
 
@@ -35,7 +35,7 @@ struct FVectorInterval
 public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	FVector Min = FVector(1.0);
-	
+
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	FVector Max = FVector(1.0);
 
@@ -48,6 +48,9 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	bool bRandomZ = true;
 
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	bool bUniform = false;
+
 	FVector GetRandom(const FRandomStream& RandStream) const
 	{
 		if (Min == Max)
@@ -55,10 +58,16 @@ public:
 			return Min;
 		}
 
-		return FVector(
-			bRandomX ? RandStream.FRandRange(Min.X, Max.X) : 0.0,
-			bRandomY ? RandStream.FRandRange(Min.Y, Max.Y) : 0.0,
-			bRandomZ ? RandStream.FRandRange(Min.Z, Max.Z) : 0.0
+		if (!bUniform)
+		{
+			return FVector(
+				bRandomX ? RandStream.FRandRange(Min.X, Max.X) : 0.0,
+				bRandomY ? RandStream.FRandRange(Min.Y, Max.Y) : 0.0,
+				bRandomZ ? RandStream.FRandRange(Min.Z, Max.Z) : 0.0
+			);
+		}
+		return FMath::Lerp(
+			Min, Max, RandStream.FRandRange(0.f, 1.f)
 		);
 	}
 };
@@ -76,7 +85,7 @@ public:
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	bool bRandomYaw = true;
-	
+
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	bool bRandomPitch = false;
 
@@ -104,7 +113,7 @@ class GENERICFOLIAGE_API UGenericFoliageType : public UObject
 	GENERATED_BODY()
 
 	UGenericFoliageType();
-	
+
 public:
 	/** A static mesh representing this foliage type */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
@@ -121,7 +130,7 @@ public:
 	/** Whether a random local offset should be applied */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
 	bool bRandomLocalOffset = false;
-	
+
 	/** Local offset applied to each instance */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General, meta = (EditCondition="!bRandomLocalOffset"))
 	FVector LocalOffset = FVector::ZeroVector;
@@ -145,7 +154,7 @@ public:
 	/** Initial random seed to apply to this asset */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
 	int32 RandomSeed = 1337;
-	
+
 	/** If enabled, we will only spawn this foliage type in the nearest tile */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
 	bool bOnlySpawnInNearestTile = false;
@@ -165,20 +174,20 @@ public:
 	/** Maximum slope angle (in degrees) where the foliage will spawn. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
 	float SlopeAngleThreshold = 45.f;
-	
+
 public:
 	UFUNCTION()
 	FGuid GetGuid();
 
 	UFUNCTION()
 	FVector GetRandomScale() const;
-	
+
 	UFUNCTION()
 	FRotator GetRandomRotator() const;
 
 	UFUNCTION()
 	FVector GetRandomLocalOffset() const;
-	
+
 private:
 	UPROPERTY()
 	FGuid Guid;
