@@ -8,7 +8,7 @@
 #include "FoliageInstancedMeshPool.generated.h"
 
 
-UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) )
+UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) , Transient)
 class GENERICFOLIAGE_API UFoliageInstancedMeshPool : public UActorComponent
 {
 	GENERATED_BODY()
@@ -38,14 +38,14 @@ public:
 	
 public:
 	// Map that stores our ISMs. these are mapped against a GUID which comes from a foliage type 
-	UPROPERTY(Transient)
+	UPROPERTY()
 	TMap<FGuid, UHierarchicalInstancedStaticMeshComponent*> HISMPool;
 
 	/** Whether collision is enabled on our instances. typically this is set in its owning actor */
-	UPROPERTY(Transient)
+	UPROPERTY()
 	bool bEnableCollision = true;
 
 	/** Foliage types in this tile */
-	UPROPERTY(Transient)
+	UPROPERTY()
 	TArray<UGenericFoliageType*> FoliageTypes;
 };

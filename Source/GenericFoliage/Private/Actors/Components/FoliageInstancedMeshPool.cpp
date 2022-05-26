@@ -2,6 +2,9 @@
 
 
 #include "Actors/Components/FoliageInstancedMeshPool.h"
+
+#include "GenericFoliage.h"
+#include "Actors/GenericFoliageActor.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 
 // Sets default values for this component's properties
@@ -47,28 +50,41 @@ void UFoliageInstancedMeshPool::TickComponent(float DeltaTime, ELevelTick TickTy
 
 void UFoliageInstancedMeshPool::RebuildHISMPool(const TArray<UGenericFoliageType*>& InFoliageTypes)
 {
-	for (auto& HISMPair : HISMPool)
+	check(IsInGameThread());
+	if (HISMPool.Num() > 0)
 	{
-		HISMPair.Value->DestroyComponent();
+		for (auto& HISMPair : HISMPool)
+		{
+			if (IsValid(HISMPair.Value))
+			{
+				HISMPair.Value->DestroyComponent();
+			}
+		}
+	
+		HISMPool.Reset();
 	}
 
-	HISMPool.Reset();
-
+	AGenericFoliageActor* Parent = Cast<AGenericFoliageActor>(GetOwner());
+	
 	FoliageTypes = InFoliageTypes;
 
-	for (UGenericFoliageType* FoliageType : FoliageTypes)
+	bool bHasAnyInvalidMesh = false;
+
+	for (UGenericFoliageType* FoliageType : InFoliageTypes)
 	{
 		if (!IsValid(FoliageType))
 		{
+			bHasAnyInvalidMesh = true;
 			continue;
 		}
 		if (!IsValid(FoliageType->FoliageMesh))
 		{
+			bHasAnyInvalidMesh = true;
 			continue;
 		}
 
 		UHierarchicalInstancedStaticMeshComponent* HISM = NewObject<UHierarchicalInstancedStaticMeshComponent>(
-			GetOwner(), FName(*FString::Printf(TEXT("%s_HISM_Pooled"), *GetName())));
+			GetOwner());
 		HISM->bAffectDynamicIndirectLighting = false;
 		HISM->bSelectable = false;
 		HISM->AttachToComponent(GetOwner()->GetRootComponent(),
@@ -95,6 +111,8 @@ void UFoliageInstancedMeshPool::RebuildHISMPool(const TArray<UGenericFoliageType
 
 		HISMPool.Add(FoliageType->GetGuid(), HISM);
 	}
+
+	Parent->SetIsReadyToUpdate(!bHasAnyInvalidMesh);
 }
 
 void UFoliageInstancedMeshPool::ToggleCollision(bool bNewEnableCollision)

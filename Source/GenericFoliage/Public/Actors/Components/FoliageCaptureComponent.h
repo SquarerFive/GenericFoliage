@@ -11,7 +11,7 @@ class IProjectionInterface;
 class UDynamicMeshComponent;
 class ULidarPointCloudComponent;
 
-UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
+UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent), Transient)
 class GENERICFOLIAGE_API UFoliageCaptureComponent : public USceneComponent
 {
 	GENERATED_BODY()
@@ -66,31 +66,31 @@ public:
 	UPROPERTY(VisibleAnywhere, Category = "ProceduralFoliage")
 	AActor* Projection;
 
-	UPROPERTY(Transient)
+	UPROPERTY()
 	USceneCaptureComponent2D* SceneColourCapture;
 	
-	UPROPERTY(Transient)
+	UPROPERTY()
 	USceneCaptureComponent2D* SceneDepthCapture;
 	
-	UPROPERTY(Transient)
+	UPROPERTY()
 	USceneCaptureComponent2D* SceneNormalCapture;
 	
-	UPROPERTY(Transient)
+	UPROPERTY()
 	UTextureRenderTarget2D* SceneColourRT;
 	
-	UPROPERTY(Transient)
+	UPROPERTY()
 	UTextureRenderTarget2D* SceneDepthRT;
 	
-	UPROPERTY(Transient)
+	UPROPERTY()
 	UTextureRenderTarget2D* SceneNormalRT;
 
-	UPROPERTY(Transient)
+	UPROPERTY()
 	ULidarPointCloudComponent* PointCloudComponent;
 
-	UPROPERTY(Transient)
+	UPROPERTY()
 	double Diameter =  200000.;
 
-	UPROPERTY(Transient)
+	UPROPERTY()
 	FBox BoundingBox;
 
 	UPROPERTY(VisibleAnywhere, Category = "ProceduralFoliage")
@@ -110,14 +110,14 @@ private:
 	FName CreateComponentName(const FString& ComponentName) const;
 
 private:
-	UPROPERTY(Transient)
+	UPROPERTY()
 	TArray<FLidarPointCloudPoint> Viz_Points;
-	UPROPERTY(Transient)
+	UPROPERTY()
 	bool bIsUsingSharedResources = true;
-	UPROPERTY(Transient)
+	UPROPERTY()
 	bool bReadyToUpdate = true;
-	UPROPERTY(Transient)
+	UPROPERTY()
 	ULidarPointCloud* PointCloud;
-
+	
 	TMap<FGuid, TSharedPtr<struct FTiledFoliageBuilder>> Builders;
 };

@@ -6,15 +6,24 @@
 UGenericFoliageType::UGenericFoliageType()
 {
 	RandomStream = FRandomStream(RandomSeed);
+
+	if (!Guid.IsValid())
+	{
+		FGuid RandomGuid(
+			FMath::RandRange(0, RAND_MAX),
+			FMath::RandRange(0, RAND_MAX),
+			FMath::RandRange(0, RAND_MAX),
+			FMath::RandRange(0, RAND_MAX)
+			);
+
+		FPlatformMisc::CreateGuid(RandomGuid);
+
+		Guid = RandomGuid;
+	}
 }
 
 FGuid UGenericFoliageType::GetGuid()
 {
-	if (!Guid.IsValid())
-	{
-		Guid = FGuid::NewGuid();
-	}
-
 	return Guid;
 }
 

@@ -189,7 +189,7 @@ public:
 	FVector GetRandomLocalOffset() const;
 
 private:
-	UPROPERTY()
+	UPROPERTY(VisibleAnywhere, Transient, DuplicateTransient, Category = "Guid")
 	FGuid Guid;
 
 	UPROPERTY()

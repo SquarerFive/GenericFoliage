@@ -21,6 +21,7 @@ public:
 	AGenericFoliageActor();
 
 protected:
+	void Setup();
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 	virtual bool ShouldTickIfViewportsOnly() const override;
@@ -42,7 +43,7 @@ private:
 
 	void SetupFoliageCaptureComponents();
 
-	void RebuildInstancedMeshPool();
+	void RebuildInstancedMeshPool( bool bImmediate = false );
 
 	TArray<UFoliageCaptureComponent*> GetFoliageCaptureComponents() const;
 
@@ -72,6 +73,10 @@ public:
 
 	/** Sets the capture components to only capture these specific actors */
 	virtual void SetShowOnlyActors(TArray<AActor*> InShowOnlyActors);
+
+	void SetIsReadyToUpdate(bool bNewState);
+
+	bool HasAnyFoliageTypes();
 
 public:
 #pragma region Blueprint Exposed Functions
@@ -138,9 +143,10 @@ private:
 	float UpdateFrequency = 0.05f;
 	float UpdateTime = 0.f;
 	FIntPoint LastNearestTileID;
-	bool bForceUpdate = false;
 	FVector LastCameraPosition = FVector::ZeroVector;
 
+	bool bReadyToUpdate = false;
+	bool bForceUpdate = false;
 private:
 	bool bUsingSharedResources = true;
 	TArray<TFunction<void()>> CaptureTickQueue;

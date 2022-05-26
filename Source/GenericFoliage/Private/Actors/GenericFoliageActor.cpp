@@ -29,19 +29,24 @@ AGenericFoliageActor::AGenericFoliageActor()
 	bAllowTickBeforeBeginPlay = false;
 }
 
+void AGenericFoliageActor::Setup()
+{
+	SetupFoliageCaptureComponents();
+	RebuildInstancedMeshPool(true);
+	SetupTextureTargets();
+
+	for (UFoliageCaptureComponent* CaptureComponent : GetFoliageCaptureComponents())
+	{
+		CaptureComponent->SetDiameter(Diameter);
+	}
+}
+
 // Called when the game starts or when spawned
 void AGenericFoliageActor::BeginPlay()
 {
 	Super::BeginPlay();
 
-	SetupFoliageCaptureComponents();
-	RebuildInstancedMeshPool();
-	SetupTextureTargets();
-
-	for (UFoliageCaptureComponent* CaptureComponent: GetFoliageCaptureComponents())
-	{
-		CaptureComponent->SetDiameter(Diameter);
-	}
+	Setup();
 }
 
 bool AGenericFoliageActor::ShouldTickIfViewportsOnly() const
@@ -53,20 +58,19 @@ void AGenericFoliageActor::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
 
-	if (bUsingSharedResources)
-	{
-		CaptureTasksPerTick = 1;
-	}
-	
-	SetupFoliageCaptureComponents();
-	RebuildInstancedMeshPool();
-	SetupTextureTargets();
-	
-	UE_LOG(LogGenericFoliage, Display, TEXT("Called construction script"));
+	if (IsValid(GetWorld())) {
+		UE_LOG(LogGenericFoliage, Verbose, TEXT("Called construction script"));
+		if (bUsingSharedResources)
+		{
+			CaptureTasksPerTick = 1;
+		}
 
-	for (UFoliageCaptureComponent* CaptureComponent: GetFoliageCaptureComponents())
-	{
-		CaptureComponent->SetDiameter(Diameter);
+		bool bCanSetup = HasAnyFoliageTypes();
+
+		if (bCanSetup)
+		{
+			Setup();
+		}
 	}
 }
 
@@ -84,7 +88,7 @@ void AGenericFoliageActor::PostEditChangeProperty(FPropertyChangedEvent& Propert
 			if (CaptureComponent->Diameter != Diameter)
 			{
 				bUpdateFoliage = true;
-			} 
+			}
 			CaptureComponent->SetDiameter(Diameter);
 		}
 	}
@@ -95,10 +99,17 @@ void AGenericFoliageActor::PostEditChangeProperty(FPropertyChangedEvent& Propert
 		bUpdateFoliage = true;
 	}
 
-	if (PropertyChangedEvent.GetPropertyName() == GET_MEMBER_NAME_CHECKED(AGenericFoliageActor, TileCount))
+	if (PropertyChangedEvent.GetPropertyName() == GET_MEMBER_NAME_CHECKED(AGenericFoliageActor, TileCount) ||
+		PropertyChangedEvent.GetPropertyName()
+		== GET_MEMBER_NAME_CHECKED(AGenericFoliageActor, FoliageTypes))
 	{
-		SetupFoliageCaptureComponents();
-		bUpdateFoliage = true;
+		CaptureTickQueue.Empty();
+		FoliageTickQueue.Empty();
+		if (HasAnyFoliageTypes())
+		{
+			Setup();
+			bUpdateFoliage = true;
+		}
 	}
 
 	if (bUpdateFoliage)
@@ -114,9 +125,10 @@ void AGenericFoliageActor::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 
 	// Debug
+
 	/*
 	TArray<FString> TilesCurrentlyBuilding;
-	for (const FIntPoint& Point: GetBuildingTiles())
+	for (const FIntPoint& Point : GetBuildingTiles())
 	{
 		TilesCurrentlyBuilding.Add(Point.ToString());
 	}
@@ -125,12 +137,13 @@ void AGenericFoliageActor::Tick(float DeltaTime)
 
 	GEngine->AddOnScreenDebugMessage(
 		-1, DeltaTime, FColor::Red, FString::Printf(
-			TEXT("%s - Tiles building: [%s] - Instance count: %i"),
+			TEXT("%s - Tiles building: [%s] - Instance count: %i - CanUpdate: %s"),
 			*GetName(), *FString::Join(TilesCurrentlyBuilding, TEXT(", ")),
-			InstanceCount
+			InstanceCount, IsReadyToUpdate() ? TEXT("true") : TEXT("false")
 		)
 	);
 	*/
+
 	// __
 
 	if (UpdateTime > UpdateFrequency && !bDisableUpdates && IsReadyToUpdate())
@@ -146,17 +159,24 @@ void AGenericFoliageActor::Tick(float DeltaTime)
 		{
 			double Velocity = (CameraLocation - LastCameraPosition).Length();
 			LastCameraPosition = CameraLocation;
-			
+
 			CameraLocation = AdjustWorldPositionHeightToPlanet(CameraLocation, 2000);
 			UpdateNearestTileID(CameraLocation);
 
-			if ((FVector::Distance(CameraLocation, LastUpdatePosition) > Diameter * (float)TileCount.Size() * 0.75 && Velocity < VelocityUpdateThreshold) || bForceUpdate)
+			if ((FVector::Distance(CameraLocation, LastUpdatePosition) > Diameter * (float)TileCount.Size() * 0.95 &&
+				Velocity < VelocityUpdateThreshold) || bForceUpdate)
 			{
+
+				UE_LOG(LogGenericFoliage, Verbose, TEXT("Updated foliage with camera position from to: %s %s"),
+					*LastUpdatePosition.ToString(),
+					*CameraLocation.ToString()
+				);
+
 				LastUpdatePosition = CameraLocation;
 				CaptureTickQueue.Empty();
 				FoliageTickQueue.Empty();
 
-				for (UFoliageCaptureComponent* CaptureComponent: GetFoliageCaptureComponents())
+				for (UFoliageCaptureComponent* CaptureComponent : GetFoliageCaptureComponents())
 				{
 					CaptureTickQueue.Emplace([this, CaptureComponent, CameraLocation]()
 					{
@@ -218,7 +238,8 @@ void AGenericFoliageActor::Tick(float DeltaTime)
 			{
 				break;
 			}
-			FoliageTickQueue.Pop()();
+			FoliageTickQueue[0]();
+			FoliageTickQueue.RemoveAt(0, 1, true);
 		}
 	}
 }
@@ -261,6 +282,21 @@ bool AGenericFoliageActor::IsReadyToUpdate() const
 			bIsReadyToUpdate = bIsReadyToUpdate && (FoliageCaptureComponent->IsReadyToUpdate());
 		}
 	}
+	if (FoliageTypes.Num() == 0)
+	{
+		bIsReadyToUpdate = false;
+	}
+	else
+	{
+		for (UGenericFoliageType* FoliageType : FoliageTypes)
+		{
+			for (const auto& TilePair : TileInstancedMeshPools)
+			{
+				bIsReadyToUpdate = bIsReadyToUpdate && TilePair.Value->HISMPool.Contains(FoliageType->GetGuid());
+			}
+		}
+	}
+
 	return bIsReadyToUpdate;
 }
 
@@ -272,7 +308,7 @@ void AGenericFoliageActor::SetupTextureTargets()
 		{
 			return FName(*FString::Printf(TEXT("%s_%s_%i"), *InName, *GetName(), TilePixelSize));
 		};
-		
+
 		SceneColourRT = NewObject<UTextureRenderTarget2D>(this, MakeName("SceneColourRT"), RF_Transient);
 		check(SceneColourRT);
 
@@ -300,7 +336,7 @@ void AGenericFoliageActor::SetupTextureTargets()
 
 void AGenericFoliageActor::SetupFoliageCaptureComponents()
 {
-	for (UFoliageCaptureComponent* CaptureComponent: GetFoliageCaptureComponents())
+	for (UFoliageCaptureComponent* CaptureComponent : GetFoliageCaptureComponents())
 	{
 		if (IsValid(CaptureComponent))
 		{
@@ -308,7 +344,7 @@ void AGenericFoliageActor::SetupFoliageCaptureComponents()
 		}
 	}
 
-	for (auto& KV: TileInstancedMeshPools)
+	for (auto& KV : TileInstancedMeshPools)
 	{
 		if (IsValid(KV.Value))
 		{
@@ -317,56 +353,72 @@ void AGenericFoliageActor::SetupFoliageCaptureComponents()
 	}
 
 	TileInstancedMeshPools.Reset();
-	
+
 	for (int x = -TileCount.X; x <= TileCount.X; ++x)
-    	{
-    		for (int y = -TileCount.Y; y <= TileCount.Y; ++y)
-    		{
-    			UFoliageCaptureComponent* FoliageCaptureComponent = Cast<UFoliageCaptureComponent>(
-    				AddComponentByClass(UFoliageCaptureComponent::StaticClass(), false, FTransform::Identity, false)
-    				);
+	{
+		for (int y = -TileCount.Y; y <= TileCount.Y; ++y)
+		{
+			UFoliageCaptureComponent* FoliageCaptureComponent = Cast<UFoliageCaptureComponent>(
+				AddComponentByClass(UFoliageCaptureComponent::StaticClass(), false, FTransform::Identity, false)
+			);
 
-    			check(FoliageCaptureComponent);
-    			FoliageCaptureComponent->TileID = {x, y};
-    			FoliageCaptureComponent->AttachToComponent(GetRootComponent(), FAttachmentTransformRules {EAttachmentRule::KeepRelative, false});
+			check(FoliageCaptureComponent);
+			FoliageCaptureComponent->TileID = {x, y};
+			FoliageCaptureComponent->AttachToComponent(GetRootComponent(),
+			                                           FAttachmentTransformRules{EAttachmentRule::KeepRelative, false});
 
-    			if (!FoliageCaptureComponent->IsUsingSharedResources())
-    			{
-    				FoliageCaptureComponent->SetupTextureTargets(TilePixelSize);
-    			}
-    			
-    			UFoliageInstancedMeshPool* InstancedMeshPool = Cast<UFoliageInstancedMeshPool>(
-					AddComponentByClass(UFoliageInstancedMeshPool::StaticClass(), true, FTransform::Identity, false)
-    			);
+			if (!FoliageCaptureComponent->IsUsingSharedResources())
+			{
+				FoliageCaptureComponent->SetupTextureTargets(TilePixelSize);
+			}
 
-    			check(InstancedMeshPool);
-    
-    			if (x == 0 && y == 0)
-    			{
-    				InstancedMeshPool->bEnableCollision = true;
-    			}
-    			else
-    			{
-    				InstancedMeshPool->bEnableCollision = false;
-    			}
-    
-    			TileInstancedMeshPools.Add(FIntPoint(x, y), InstancedMeshPool);
-    		}
-    	}
+			UFoliageInstancedMeshPool* InstancedMeshPool = Cast<UFoliageInstancedMeshPool>(
+				AddComponentByClass(UFoliageInstancedMeshPool::StaticClass(), true, FTransform::Identity, false)
+			);
+
+			check(InstancedMeshPool);
+
+			if (x == 0 && y == 0)
+			{
+				InstancedMeshPool->bEnableCollision = true;
+			}
+			else
+			{
+				InstancedMeshPool->bEnableCollision = false;
+			}
+
+			TileInstancedMeshPools.Add(FIntPoint(x, y), InstancedMeshPool);
+		}
+	}
 }
 
-void AGenericFoliageActor::RebuildInstancedMeshPool()
+void AGenericFoliageActor::RebuildInstancedMeshPool(bool bImmediate /* false */)
 {
-	CaptureTickQueue.Emplace([this]()
+	if (TileInstancedMeshPools.Num() == 0)
 	{
-		for (auto& MeshPoolPair : TileInstancedMeshPools)
+		return;
+	}
+
+	auto Task = [this]()
+	{
+		for (const TPair<FIntPoint, UFoliageInstancedMeshPool*>& MeshPoolPair : TileInstancedMeshPools)
 		{
-			if (FoliageTypes.Num() > 0)
+			if (FoliageTypes.Num() > 0 && IsValid(MeshPoolPair.Value))
 			{
 				MeshPoolPair.Value->RebuildHISMPool(FoliageTypes);
 			}
 		}
-	});
+	};
+
+	// bReadyToUpdate is set from the mesh pool, if not valid we will refresh.
+	if (bImmediate)
+	{
+		Task();
+	}
+	else
+	{
+		CaptureTickQueue.Emplace(MoveTemp(Task));
+	}
 }
 
 TArray<UFoliageCaptureComponent*> AGenericFoliageActor::GetFoliageCaptureComponents() const
@@ -393,7 +445,7 @@ TArray<UFoliageCaptureComponent*> AGenericFoliageActor::GetFoliageCaptureCompone
 			// return FVector2D::DistSquared(FVector2D(A->TileID), FVector2D(NearestTileID)) < FVector2D::DistSquared(FVector2D(B->TileID), FVector2D(NearestTileID));
 		});
 	}
-	
+
 	return Result;
 }
 
@@ -430,7 +482,7 @@ void AGenericFoliageActor::UpdateNearestTileID(const FVector& InWorldLocation)
 TArray<FIntPoint> AGenericFoliageActor::GetBuildingTiles() const
 {
 	TArray<FIntPoint> Result;
-	for (UFoliageCaptureComponent* CaptureComponent: GetFoliageCaptureComponents())
+	for (UFoliageCaptureComponent* CaptureComponent : GetFoliageCaptureComponents())
 	{
 		if (!CaptureComponent->IsReadyToUpdate())
 		{
@@ -444,7 +496,7 @@ int32 AGenericFoliageActor::GetTotalInstanceCount() const
 {
 	int32 Count = 0;
 
-	for (const auto& MeshPoolPair: TileInstancedMeshPools)
+	for (const auto& MeshPoolPair : TileInstancedMeshPools)
 	{
 		if (IsValid(MeshPoolPair.Value))
 		{
@@ -507,6 +559,33 @@ void AGenericFoliageActor::SetShowOnlyActors(TArray<AActor*> InShowOnlyActors)
 				ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
 		}
 	}
+}
+
+void AGenericFoliageActor::SetIsReadyToUpdate(bool bNewState)
+{
+	bReadyToUpdate = bNewState;
+}
+
+bool AGenericFoliageActor::HasAnyFoliageTypes()
+{
+	bool bCanSetup = true;
+	for (UGenericFoliageType* FoliageType : FoliageTypes)
+	{
+		if (!IsValid(FoliageType))
+		{
+			bCanSetup = false;
+			break;
+		}
+		else
+		{
+			if (!IsValid(FoliageType->FoliageMesh))
+			{
+				bCanSetup = false;
+				break;
+			}
+		}
+	}
+	return bCanSetup;
 }
 
 void AGenericFoliageActor::RefreshFoliage()

@@ -194,9 +194,6 @@ void UFoliageCaptureComponent::Compute()
 			}
 
 			TArray<float> SceneDepthValues;
-
-			//			ComputeModule.CopyRenderTargetToCpu(RHICmdList, SceneDepthRT_Target2D, SceneDepthValues);
-
 			{
 				FRHITexture2D* DepthRT_RHI = SceneDepthRT_Target2D->GetRenderTargetResource()->GetTexture2DRHI();
 				FRHIGPUTextureReadback DepthReadback("DepthReadback");
@@ -242,7 +239,6 @@ void UFoliageCaptureComponent::BeginPlay()
 void UFoliageCaptureComponent::InitializeComponent()
 {
 	Super::InitializeComponent();
-	UE_LOG(LogGenericFoliage, Display, TEXT("Initializing component"));
 }
 
 
@@ -369,7 +365,7 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 	AGenericFoliageActor* Parent = Cast<AGenericFoliageActor>(GetOwner());
 	check(IsValid(Parent));
 
-	bool bCanUseParallel = true;
+	bool bCanUseParallel = false;
 
 	for (UGenericFoliageType* FoliageType : Parent->FoliageTypes)
 	{
@@ -387,6 +383,23 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 		if (!IsValid(FoliageType))
 		{
 			continue;
+		}
+
+		if ((!Parent->TileInstancedMeshPools[TileID]->HISMPool.Contains(FoliageType->GetGuid())))
+		{
+			UE_LOG(LogGenericFoliage, Error, TEXT("Tiled HISM not created for all foliage types!"));
+			return;
+		}
+
+		if (!Builders.Contains(FoliageType->GetGuid()))
+		{
+			UE_LOG(LogGenericFoliage, Error, TEXT("Builders were not initialized properly"));
+			return;
+		}
+		if (!Builders[FoliageType->GetGuid()].IsValid())
+		{
+			UE_LOG(LogGenericFoliage, Error, TEXT("Builders were not initialized properly"));
+			return;
 		}
 
 		FoliageTransforms.Add(FoliageType->GetGuid(), {});
@@ -579,25 +592,26 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 									);
 
 									FRotator AbsoluteRotator = FoliageType->bAlignToSurfaceNormal
-											   ? RotatorAtPoint
-											   : AbsoluteTransform.Rotator();
+										                           ? RotatorAtPoint
+										                           : AbsoluteTransform.Rotator();
 
 									const FVector AbsolutePosition = AbsoluteTransform.TransformPosition(
 										RelativePosition + (FoliageType->bRandomLocalOffset
-																? FoliageType->GetRandomLocalOffset()
-																: FoliageType->LocalOffset));
+											                    ? FoliageType->GetRandomLocalOffset()
+											                    : FoliageType->LocalOffset));
 
 									const double Angle = FMath::RadiansToDegrees(FMath::Acos(
 										NormalAtPoint | AbsoluteTransform.GetRotation().GetUpVector()
 									));
-									
+
 									if (FoliageType->bEnableRandomRotation)
 									{
 										AbsoluteRotator = (FoliageType->GetRandomRotator().Quaternion() *
 											AbsoluteRotator.Quaternion()).Rotator();
 									}
 
-									if (FoliageType->SpawnConstraint.IntersectsRGB(ColourAtPoint) && Angle <= FoliageType->SlopeAngleThreshold)
+									if (FoliageType->SpawnConstraint.IntersectsRGB(ColourAtPoint) && Angle <=
+										FoliageType->SlopeAngleThreshold)
 									{
 										FoliageTransforms[FoliageType->GetGuid()].Emplace(
 											FTransform(
@@ -637,23 +651,24 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 							FRotator AbsoluteRotator = FoliageType->bAlignToSurfaceNormal
 								                           ? RotatorAtPoint
 								                           : AbsoluteTransform.Rotator();
-							
+
 							const FVector AbsolutePosition = AbsoluteTransform.TransformPosition(
-					RelativePosition + (FoliageType->bRandomLocalOffset
-											? FoliageType->GetRandomLocalOffset()
-											: FoliageType->LocalOffset));
+								RelativePosition + (FoliageType->bRandomLocalOffset
+									                    ? FoliageType->GetRandomLocalOffset()
+									                    : FoliageType->LocalOffset));
 
 							if (FoliageType->bEnableRandomRotation)
 							{
 								AbsoluteRotator = (FoliageType->GetRandomRotator().Quaternion() * AbsoluteRotator.
 									Quaternion()).Rotator();
 							}
-							
-							const double Angle = FMath::RadiansToDegrees(FMath::Acos(
-										NormalAtPoint | AbsoluteTransform.GetRotation().GetUpVector()
-									));
 
-							if (FoliageType->SpawnConstraint.IntersectsRGB(ColourAtPoint) && Angle <= FoliageType->SlopeAngleThreshold)
+							const double Angle = FMath::RadiansToDegrees(FMath::Acos(
+								NormalAtPoint | AbsoluteTransform.GetRotation().GetUpVector()
+							));
+
+							if (FoliageType->SpawnConstraint.IntersectsRGB(ColourAtPoint) && Angle <= FoliageType->
+								SlopeAngleThreshold)
 							{
 								FoliageTransforms[FoliageType->GetGuid()].Emplace(
 									FTransform(
@@ -677,15 +692,18 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 		FGuid Guid = FoliageType->GetGuid();
 
 		const TArray<FTransform>& Transforms = FoliageTransforms[Guid];
-		if (Builders[Guid].IsValid())
+		if (Builders.Contains(Guid))
 		{
-			if (Transforms.Num() > 0)
+			if (Builders[Guid].IsValid())
 			{
-				Builders[Guid]->Build(Transforms);
-			}
-			else
-			{
-				// UE_LOG(LogGenericFoliage, Error, TEXT("No transforms (thread)"));
+				if (Transforms.Num() > 0)
+				{
+					Builders[Guid]->Build(Transforms);
+				}
+				else
+				{
+					// UE_LOG(LogGenericFoliage, Error, TEXT("No transforms (thread)"));
+				}
 			}
 		}
 		else
@@ -713,13 +731,7 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 		{
 			return;
 		}
-
-		// Execute last
-		Parent->EnqueueFoliageTickTask([this]()
-		{
-			bReadyToUpdate = true;
-		});
-
+		
 		for (UGenericFoliageType* FoliageType : Parent->FoliageTypes)
 		{
 			if (!IsValid(FoliageType))
@@ -735,17 +747,17 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 			{
 				auto HISM = Parent->TileInstancedMeshPools[TileID]->HISMPool[FoliageType->GetGuid()];
 
+				Parent->EnqueueFoliageTickTask([HISM]()
+				{
+					HISM->ClearInstances();
+				});
+
 				const int32 NumInstancesPerChunk = 25000;
 				const int32 ExpectedChunks = Transforms.Num() / NumInstancesPerChunk;
 
 				HISM->bAutoRebuildTreeOnInstanceChanges = false;
-
+			
 				// Executes last
-				Parent->EnqueueFoliageTickTask([this, HISM]()
-				{
-					HISM->BuildTreeIfOutdated(true, true);
-				});
-
 				if (ExpectedChunks > 1)
 				{
 					for (int32 i = 0; i <= ExpectedChunks; ++i)
@@ -775,14 +787,18 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 						);
 					});
 				}
-
-				// Executes first
-				Parent->EnqueueFoliageTickTask([HISM]()
-				{
-					HISM->ClearInstances();
+				
+				Parent->EnqueueFoliageTickTask([HISM]() {
+					HISM->BuildTreeIfOutdated(true, false);
 				});
 			}
+			
 		}
+
+		Parent->EnqueueFoliageTickTask([this]()
+		{
+			this->bReadyToUpdate = true;
+		});
 	});
 }
 
@@ -796,15 +812,21 @@ TMap<FGuid, TSharedPtr<FTiledFoliageBuilder>> UFoliageCaptureComponent::CreateFo
 	for (UGenericFoliageType* FoliageType : Parent->FoliageTypes)
 	{
 		// TODO: Is Grass
-		FGuid Guid = FoliageType->GetGuid();
-		Result.Emplace(
-			Guid,
-			MakeShareable(new
-				FTiledFoliageBuilder(
-					Parent->TileInstancedMeshPools[TileID]->HISMPool[Guid]->GetComponentTransform(),
-					FoliageType->FoliageMesh->GetBoundingBox()
-				))
-		);
+		if (FoliageType != nullptr)
+		{
+			FGuid Guid = FoliageType->GetGuid();
+			if (Parent->TileInstancedMeshPools[TileID]->HISMPool.Contains(Guid))
+			{
+				Result.Emplace(
+					Guid,
+					MakeShareable(new
+						FTiledFoliageBuilder(
+							Parent->TileInstancedMeshPools[TileID]->HISMPool[Guid]->GetComponentTransform(),
+							FoliageType->FoliageMesh->GetBoundingBox()
+						))
+				);
+			}
+		}
 	}
 
 	return Result;
