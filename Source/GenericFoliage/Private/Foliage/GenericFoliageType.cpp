@@ -7,19 +7,7 @@ UGenericFoliageType::UGenericFoliageType()
 {
 	RandomStream = FRandomStream(RandomSeed);
 
-	if (!Guid.IsValid())
-	{
-		FGuid RandomGuid(
-			FMath::RandRange(0, RAND_MAX),
-			FMath::RandRange(0, RAND_MAX),
-			FMath::RandRange(0, RAND_MAX),
-			FMath::RandRange(0, RAND_MAX)
-			);
-
-		FPlatformMisc::CreateGuid(RandomGuid);
-
-		Guid = RandomGuid;
-	}
+	ResetGUID();
 }
 
 FGuid UGenericFoliageType::GetGuid()
@@ -40,4 +28,18 @@ FRotator UGenericFoliageType::GetRandomRotator() const
 FVector UGenericFoliageType::GetRandomLocalOffset() const
 {
 	return RandomLocalOffsetRange.GetRandom(RandomStream);
+}
+
+void UGenericFoliageType::ResetGUID()
+{
+	FGuid RandomGuid(
+		FMath::RandRange(0, RAND_MAX),
+		FMath::RandRange(0, RAND_MAX),
+		FMath::RandRange(0, RAND_MAX),
+		FMath::RandRange(0, RAND_MAX)
+	);
+
+	FPlatformMisc::CreateGuid(RandomGuid);
+
+	Guid = RandomGuid;
 }

@@ -188,6 +188,9 @@ public:
 	UFUNCTION()
 	FVector GetRandomLocalOffset() const;
 
+	UFUNCTION(CallInEditor)
+	void ResetGUID();
+
 private:
 	UPROPERTY(VisibleAnywhere, Transient, DuplicateTransient, Category = "Guid")
 	FGuid Guid;
