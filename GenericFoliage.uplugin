@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
 	"Version": 1,
-	"VersionName": "1.0",
+	"VersionName": "0.5",
 	"FriendlyName": "GenericFoliage",
 	"Description": "generic procedural foliage plugin (take 2)",
 	"Category": "Other",
