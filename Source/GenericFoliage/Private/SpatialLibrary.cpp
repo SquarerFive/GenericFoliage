@@ -92,3 +92,29 @@ TArray<FSpatialFeature> USpatialLibrary::ParseGeoJSON(const FString& InGeoJSON, 
 
 	return Features;
 }
+
+double USpatialLibrary::HaversineDistance(const FVector2D& PointA, const FVector2D& PointB, double Radius)
+{
+	const FVector2D PointARadians = FMath::DegreesToRadians(PointA);
+	const FVector2D PointBRadians = FMath::DegreesToRadians(PointB);
+
+	const FVector2D Diff = PointB - PointA;
+	const double a = FMath::Pow(FMath::Sin(Diff.Y / 2.0), 2.0) + FMath::Cos(PointA.Y) * FMath::Cos(PointB.Y) * FMath::Pow(FMath::Sin(Diff.X/2.0), 2.0);
+	const double c = 2.0 * FMath::Asin(FMath::Sqrt(a));
+
+	return c * Radius;
+}
+
+FVector2D USpatialLibrary::HaversineDeltaDegrees(const FVector2D& Origin, const double& Distance, double Radius)
+{
+	// https://math.stackexchange.com/questions/474602/reverse-use-of-haversine-formula
+	const double DeltaLatitude = Distance / Radius;
+	const double DeltaLongitude = 2 * FMath::Asin(FMath::Sqrt(
+		(FMath::Pow(FMath::Sin((Distance / Radius) / 2.0), 2.0)) / FMath::Cos(FMath::DegreesToRadians(Origin.Y))
+	));
+
+	return FVector2D(
+	DeltaLongitude,
+	DeltaLatitude
+	);
+}

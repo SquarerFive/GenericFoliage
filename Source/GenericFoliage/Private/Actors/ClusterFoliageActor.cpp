@@ -41,8 +41,10 @@ public:
 			return 1;
 		}
 
-		FSpatialFeature Feature = ClusterFoliageActor->GetFeatureById(FeatureId);
+		const FSpatialFeature Feature = ClusterFoliageActor->GetFeatureById(FeatureId);
 		TMap<FGuid, TArray<FTransform>> FoliageTransforms;
+
+		const bool bEstimationTransform = ClusterFoliageActor->bEstimationTransform; 
 
 		Feature.Geometry->ProcessMesh([&](const FDynamicMesh3& Mesh)
 		{
@@ -53,16 +55,46 @@ public:
 
 			for (const auto Type : ClusterFoliageActor->Collection->Collection[Feature.Type].FoliageTypes)
 			{
-				auto Points = USamplerLibrary::PoissonDiscSampling2d(Type->Density, FVector2d(Width, Height));
 
-				for (FVector2d& Point : Points)
+				TArray<FVector2D> Points;
+
+				if (bEstimationTransform)
+				{
+					// Estimate our cell size based on the radius in metres
+					FVector2D Delta = USpatialLibrary::HaversineDeltaDegrees(
+						Bounds2d.Min, Type->Density
+					);
+				
+					Points = USamplerLibrary::PoissonDiscSampling(
+						FMath::Abs(Delta.Length()),
+						FVector2D(Width, Height),
+						30,
+						{
+							true,
+							Bounds2d.Min,
+							Type->Density
+						}
+					);
+				} else
+				{
+					Points = USamplerLibrary::PoissonDiscSampling(
+						Type->Density,
+						FVector2D(Width, Height),
+						30,
+						{
+							false,
+						}
+					);
+				}
+
+				for (FVector2D& Point : Points)
 				{
 					Point += Bounds2d.Min;
 				}
 
 				if (!IsValid(ClusterFoliageActor) || !IsValid(Feature.Geometry)) { return; }
 
-				TArray<FVector2d> FilteredPoints;
+				TArray<FVector2D> FilteredPoints;
 				TArray<FTransform> PointsWorld;
 
 				for (const FVector2d& Point : Points)
@@ -74,6 +106,8 @@ public:
 					bool bInside = false;
 
 					TEnumAsByte<EGeometryScriptContainmentOutcomePins> Outcome;
+
+					// Filter out points which don't intersect the geometry
 					UGeometryScriptLibrary_MeshSpatial::IsPointInsideMesh(
 						Feature.Geometry, Feature.BVH, FVector(Point.X, Point.Y, 100), {}, bInside,
 						Outcome);

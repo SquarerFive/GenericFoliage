@@ -50,6 +50,10 @@ public:
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 		bool bShowBoundary = false;
+
+	/** If enabled, then estimate the radius in metres for  the sampler. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+		bool bEstimationTransform = true;
 	
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 		UMaterialInterface* DebugMaterial = nullptr;

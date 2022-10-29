@@ -41,4 +41,18 @@ class GENERICFOLIAGE_API USpatialLibrary : public UBlueprintFunctionLibrary
 public:
 	UFUNCTION(BlueprintCallable)
 	static TArray<FSpatialFeature> ParseGeoJSON(const FString& InGeoJSON, UDynamicMeshPool* MeshPool);
+
+	/** Calculates the great circle distance between two points on a planet, returns the result in metres.
+	 *
+	 * @param Radius : Radius of the planet in metres
+	 */
+	UFUNCTION(BlueprintCallable, BlueprintPure)
+		static double HaversineDistance(const FVector2D& PointA, const FVector2D& PointB, double Radius = 6371e3);
+
+	/**
+	 * Calculates the delta longitude and latitude needed to move a distance
+	 */
+	UFUNCTION(BlueprintCallable, BlueprintPure)
+		static FVector2D HaversineDeltaDegrees(const FVector2D& Origin, const double& Distance, double Radius = 6371e3);
+	
 };
