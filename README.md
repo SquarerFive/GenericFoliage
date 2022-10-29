@@ -1,5 +1,5 @@
 # GenericFoliage (v 0.5)
-This plugin allows you to spawn foliage into planetary worlds in Unreal Engine 5. It is intended to be generic and extendable by the developer.
+This plugin allows you to spawn foliage into planetary worlds in Unreal Engine 5, using geospatial data. It is intended to be generic and extendable by the developer.
 
 ## Geometry (GeoJSON) foliage spawner
 The geometry-based spawner allows you to load a GeoJSON into the engine and spawn foliage instances at runtime.
@@ -23,6 +23,8 @@ Foliage types are handled in the **UGenericFoliageCollection**, which contains a
 
 ### Examples in Cesium:
 
+https://github.com/SquarerFive/CesiumFoliageExample
+
 ![](Resources/Screenshot_366.png)
 ![](Resources/Screenshot_367.png)
 
@@ -37,10 +39,3 @@ This is a grid based spawner using render targets to place the foliage instances
 - Collision is only enabled on the active tile (closest to the camera). This is done to speed up the time taken to add instances to the HISM.
 
 ![Sampling using GPU scene depth and world normals](Resources/Screenshot_235.png)
-
-### Example in Cesium for Unreal
-
-See https://github.com/SquarerFive/Procedural for the example project
-
-![Ground Screenshot](Resources/HighresScreenshot00001.png)
-![Air screenshot](Resources/HighresScreenshot00000.png)
