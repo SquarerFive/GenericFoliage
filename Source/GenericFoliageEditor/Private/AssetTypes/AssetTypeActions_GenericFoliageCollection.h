@@ -1,10 +1,9 @@
 ﻿// Copyright Aiden. Soedjarwo. All rights reserved
 
 #pragma once
-
 #include "AssetTypeActions_Base.h"
 
-class GENERICFOLIAGEEDITOR_API FAssetTypeActions_GenericFoliageType : public FAssetTypeActions_Base
+class GENERICFOLIAGEEDITOR_API FAssetTypeActions_GenericFoliageCollection : public FAssetTypeActions_Base
 {
 public:
 	uint32 Category;

@@ -63,8 +63,6 @@ void UFoliageInstancedMeshPool::RebuildHISMPool(const TArray<UGenericFoliageType
 	
 		HISMPool.Reset();
 	}
-
-	AGenericFoliageActor* Parent = Cast<AGenericFoliageActor>(GetOwner());
 	
 	FoliageTypes = InFoliageTypes;
 
@@ -112,7 +110,11 @@ void UFoliageInstancedMeshPool::RebuildHISMPool(const TArray<UGenericFoliageType
 		HISMPool.Add(FoliageType->GetGuid(), HISM);
 	}
 
-	Parent->SetIsReadyToUpdate(!bHasAnyInvalidMesh);
+	AGenericFoliageActor* Parent = Cast<AGenericFoliageActor>(GetOwner());
+	if (IsValid(Parent))
+	{
+		Parent->SetIsReadyToUpdate(!bHasAnyInvalidMesh);
+	}
 }
 
 void UFoliageInstancedMeshPool::ToggleCollision(bool bNewEnableCollision)

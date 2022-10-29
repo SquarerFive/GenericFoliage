@@ -1,4 +1,4 @@
-﻿// Copyright Aiden. S. All rights reserved
+﻿// Copyright Aiden. Soedjarwo. All rights reserved
 
 #include "AssetTypeActions_GenericFoliageType.h"
 

@@ -17,4 +17,5 @@ public:
 	
 private:
 	TSharedPtr<class FAssetTypeActions_GenericFoliageType> AssetTypeActions_GenericFoliageType_Ptr;
+	TSharedPtr<class FAssetTypeActions_GenericFoliageCollection> AssetTypeActions_GenericFoliageCollection_Ptr;
 };

@@ -26,6 +26,10 @@ public class GenericFoliage : ModuleRules
 			new string[]
 			{
 				"Core",
+				"GeometryCore",
+				"GeometryFramework",
+				"GeometryScriptingCore",
+				"DynamicMesh",
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);
@@ -38,12 +42,9 @@ public class GenericFoliage : ModuleRules
 				"Engine",
 				"Slate",
 				"SlateCore",
-				"GeometryCore",
-				"GeometryFramework",
-				"GeometryScriptingCore",
-				"DynamicMesh",
 				"LidarPointCloudRuntime",
-				
+				"Json",
+				"JsonUtilities",
 				"RHI",
 				"RenderCore",
 				"Projects"

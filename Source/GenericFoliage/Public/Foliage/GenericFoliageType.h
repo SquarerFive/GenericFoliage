@@ -123,7 +123,7 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
 	FLinearColorInterval SpawnConstraint;
 
-	/** Amount of instances to spawn between units (pixels) */
+	/** Amount of instances to spawn between units (pixels), or the radius between instances for clusters */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
 	float Density = 1.f;
 
