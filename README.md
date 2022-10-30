@@ -8,9 +8,14 @@ The **AClusterFoliageActor** class contains the spawner logic, along with GeoJSO
 
 It can also be extended to stream geojson contents from the web if needed.
 
+### Example project with Cesium
+https://github.com/SquarerFive/CesiumFoliageExample
+
+### How to use
+
 Each GeoJSON feature requires the field `type` in it's properties. It is a whole number describing the foliage types to spawn.
 
-Foliage types are handled in the **UGenericFoliageCollection**, which contains a map of integers to an array of **UGenericFoliageType**.
+Foliage types are handled in the **UGenericFoliageCollection** object, which contains a map of integers to an array of **UGenericFoliageType**.
 
 ### Currently supported geometry types:
 
@@ -20,10 +25,6 @@ Foliage types are handled in the **UGenericFoliageCollection**, which contains a
 | MultiPoint | ❌ Not Supported |
 | Polygon | ✅ Supported |
 | MultiPolygon | ❌ Not Supported |
-
-### Examples in Cesium:
-
-https://github.com/SquarerFive/CesiumFoliageExample
 
 ![](Resources/Screenshot_366.png)
 ![](Resources/Screenshot_367.png)
