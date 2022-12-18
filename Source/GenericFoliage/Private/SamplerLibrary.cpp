@@ -7,8 +7,8 @@
 
 #define MAX_GRID_SIZE 67108864
 
-bool IsValidCandidate(const FVector2D& Candidate, const FVector2D& RegionSize, const double& CellSize,
-                      const double& Radius, const TArray<FVector2D>& Points, const int32* Grid, const int32& GridSizeX,
+bool IsValidCandidate(const FVector2d& Candidate, const FVector2d& RegionSize, const double& CellSize,
+                      const double& Radius, const TArray<FVector2d>& Points, const int32* Grid, const int32& GridSizeX,
                       const int32& GridSizeY, const FPoissonDiscSamplingSettings& Settings)
 {
 	if (Candidate.X >= 0.0 && Candidate.X < RegionSize.X &&
@@ -45,8 +45,7 @@ bool IsValidCandidate(const FVector2D& Candidate, const FVector2D& RegionSize, c
 						}
 					} else
 					{
-						const double Distance = FVector2d::DistSquared(
-							Candidate,
+						const double Distance = Candidate.DistanceSquared(
 							Points[PointIndex]
 						);
 
@@ -65,8 +64,8 @@ bool IsValidCandidate(const FVector2D& Candidate, const FVector2D& RegionSize, c
 	return false;
 }
 
-TArray<FVector2D> USamplerLibrary::PoissonDiscSampling(const double Radius,
-                                                       const FVector2D RegionSize,
+TArray<FVector2d> USamplerLibrary::PoissonDiscSampling(const double Radius,
+                                                       const FVector2d RegionSize,
                                                        const int32 RejectionThreshold,
                                                        const FPoissonDiscSamplingSettings Settings)
 {
@@ -82,8 +81,8 @@ TArray<FVector2D> USamplerLibrary::PoissonDiscSampling(const double Radius,
 		return {};
 	}
 
-	TArray<FVector2D> Points;
-	TArray<FVector2D> ActivePoints = {RegionSize / 2.0};
+	TArray<FVector2d> Points;
+	TArray<FVector2d> ActivePoints = {RegionSize / 2.0};
 
 	int32* Grid = new int32[GridSizeX * GridSizeY]{0};
 
@@ -91,7 +90,7 @@ TArray<FVector2D> USamplerLibrary::PoissonDiscSampling(const double Radius,
 	{
 		// Sample a point
 		const int32 ActiveIndex = FMath::RandRange(0, ActivePoints.Num() - 1);
-		const FVector2D& ActivePoint = ActivePoints[
+		const FVector2d& ActivePoint = ActivePoints[
 			ActiveIndex
 		];
 
@@ -100,10 +99,10 @@ TArray<FVector2D> USamplerLibrary::PoissonDiscSampling(const double Radius,
 		for (int i = 0; i < RejectionThreshold; ++i)
 		{
 			const double Angle = FMath::FRand() * PI * 2.0;
-			const FVector2D Direction = FVector2d(sin(Angle), cos(Angle));
+			const FVector2d Direction = FVector2d(sin(Angle), cos(Angle));
 			const double Length = FMath::FRandRange(Radius, Radius * 2.0);
 
-			const FVector2D Candidate = ActivePoint + (Direction * Length);
+			const FVector2d Candidate = ActivePoint + (Direction * Length);
 
 			if (IsValidCandidate(Candidate, RegionSize, CellSize, Radius, Points, Grid, GridSizeX, GridSizeY, Settings))
 			{
@@ -132,10 +131,16 @@ TArray<FVector2D> USamplerLibrary::PoissonDiscSampling(const double Radius,
 	return Points;
 }
 
-TArray<FVector2D> USamplerLibrary::K2_PoissonDiscSampling2d(const double Radius, const FVector2D RegionSize,
+TArray<FVector2D> USamplerLibrary::K2_PoissonDiscSampling2d(const float Radius, const FVector2D RegionSize,
                                                             const int32 RejectionThreshold)
 {
-	return PoissonDiscSampling(Radius, RegionSize, RejectionThreshold);
+	auto Result = PoissonDiscSampling(Radius, FVector2d(RegionSize), RejectionThreshold);
+	TArray<FVector2D> ResultFloat;
+	for (const FVector2d& Point : Result) {
+		ResultFloat.Add(FVector2D(Point));
+	}
+
+	return ResultFloat;
 }
 
 #undef MAX_GRID_SIZE

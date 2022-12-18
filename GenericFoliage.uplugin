@@ -32,10 +32,6 @@
 			"Enabled": true
 		},
 		{
-			"Name": "GeometryScripting",
-			"Enabled": true
-		},
-		{
 			"Name": "LidarPointCloud",
 			"Enabled": true
 		}

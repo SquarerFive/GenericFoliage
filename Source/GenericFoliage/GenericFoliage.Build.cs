@@ -26,10 +26,7 @@ public class GenericFoliage : ModuleRules
 			new string[]
 			{
 				"Core",
-				"GeometryCore",
-				"GeometryFramework",
-				"GeometryScriptingCore",
-				"DynamicMesh",
+				"GeometricObjects"
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);

@@ -89,7 +89,7 @@ void UFoliageInstancedMeshPool::RebuildHISMPool(const TArray<UGenericFoliageType
 		                        FAttachmentTransformRules{EAttachmentRule::KeepWorld, false});
 		HISM->ClearInstances();
 		HISM->SetStaticMesh(FoliageType->FoliageMesh);
-		HISM->SetCullDistances(FoliageType->CullingDistanceRange.Min, FoliageType->CullingDistanceRange.Max);
+		HISM->SetCullDistances(FoliageType->CullingDistanceRange.GetLowerBoundValue(), FoliageType->CullingDistanceRange.GetUpperBoundValue());
 		HISM->bCastStaticShadow = false;
 		
 		if (FoliageType->IsCollisionEnabled.GetValue() == ECollisionEnabled::NoCollision)

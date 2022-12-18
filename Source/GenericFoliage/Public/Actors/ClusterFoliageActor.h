@@ -4,7 +4,6 @@
 
 #include "CoreMinimal.h"
 #include "SpatialLibrary.h"
-#include "Components/DynamicMeshComponent.h"
 #include "Foliage/GenericFoliageCollection.h"
 #include "GameFramework/Actor.h"
 #include "ClusterFoliageActor.generated.h"
@@ -63,13 +62,7 @@ public:
 
 private:
 	UPROPERTY(Transient)
-	UDynamicMeshPool* MeshPool = nullptr;
-
-	UPROPERTY(Transient)
 	TArray<FSpatialFeature> Features;
-
-	UPROPERTY(Transient)
-	TArray<UDynamicMeshComponent*> MeshComponents;
 
 	UPROPERTY(Transient)
 	UFoliageInstancedMeshPool* InstancedMeshPool = nullptr;

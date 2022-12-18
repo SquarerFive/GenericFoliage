@@ -157,7 +157,7 @@ void AGenericFoliageActor::Tick(float DeltaTime)
 		GetCameraInfo(CameraLocation, CameraRotation, bHasCamera);
 		if (bHasCamera)
 		{
-			double Velocity = (CameraLocation - LastCameraPosition).Length();
+			double Velocity = (CameraLocation - LastCameraPosition).Size();
 			LastCameraPosition = CameraLocation;
 
 			CameraLocation = AdjustWorldPositionHeightToPlanet(CameraLocation, 2000);

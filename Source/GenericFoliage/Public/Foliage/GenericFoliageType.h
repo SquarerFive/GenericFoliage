@@ -145,7 +145,7 @@ public:
 
 	/** Culling distances. Defines the distance where culling begins and the distance where it's fully culled */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)
-	FInt32Interval CullingDistanceRange = FInt32Interval(32768, 65536);
+		FInt32Range CullingDistanceRange = FInt32Range(32768, 65536);
 
 	/** Whether each instance should align to the surface normal, otherwise it'll just face upwards from the planet. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = General)

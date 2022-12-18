@@ -13,7 +13,7 @@
 struct FPoissonDiscSamplingSettings
 {
 	bool bUseGeographicCoordinates = false;
-	FVector2D Origin = FVector2D::ZeroVector;
+	FVector2d Origin = FVector2d(0.0, 0.0);
 	double Radius = 100.0;
 };
 
@@ -25,16 +25,16 @@ class GENERICFOLIAGE_API USamplerLibrary : public UBlueprintFunctionLibrary
 public:
 	// https://www.cs.ubc.ca/~rbridson/docs/bridson-siggraph07-poissondisk.pdf
 	// https://www.youtube.com/watch?v=7WcmyxyFO7o&ab_channel=SebastianLague
-	static TArray<FVector2D> PoissonDiscSampling(
+	static TArray<FVector2d> PoissonDiscSampling(
 		const double Radius,
-		const FVector2D RegionSize,
+		const FVector2d RegionSize,
 		const int32 RejectionThreshold = 30,
 		const FPoissonDiscSamplingSettings Settings = FPoissonDiscSamplingSettings()
 	);
 
 	UFUNCTION(BlueprintCallable, meta=(DisplayName="PoissonDiscSampling2d"))
 	static TArray<FVector2D> K2_PoissonDiscSampling2d(
-		const double Radius,
+		const float Radius,
 		const FVector2D RegionSize,
 		const int32 RejectionThreshold = 30
 	);

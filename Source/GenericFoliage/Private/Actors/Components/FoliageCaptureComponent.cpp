@@ -8,6 +8,7 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "Actors/GenericFoliageActor.h"
 #include "Async/Async.h"
+#include "Async/ParallelFor.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Engine/InstancedStaticMesh.h"
 #include "Kismet/KismetMathLibrary.h"
@@ -152,7 +153,8 @@ void UFoliageCaptureComponent::Compute()
 				int32 Pitch;
 				void* Buffer = nullptr;
 
-				Buffer = SceneColourReadback.Lock(Pitch);
+				SceneColourReadback.LockTexture(RHICmdList, Buffer, Pitch);
+
 				check(Buffer != nullptr);
 				// must be BGRA 8 bit
 				check(Pitch == Width);
@@ -200,8 +202,9 @@ void UFoliageCaptureComponent::Compute()
 
 				DepthReadback.EnqueueCopy(RHICmdList, DepthRT_RHI, FResolveRect());
 
-				int32 Pitch;
-				void* Buffer = DepthReadback.Lock(Pitch);
+				int32 Pitch = 0;
+				void* Buffer = nullptr;
+				DepthReadback.LockTexture(RHICmdList, Buffer, Pitch);
 				check(Buffer != nullptr);
 
 				SceneDepthValues.SetNumUninitialized(DepthRT_RHI->GetSizeX() * DepthRT_RHI->GetSizeY());
@@ -420,8 +423,8 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 	{
 		const int32 OX = FMath::Floor(U);
 		const int32 OY = FMath::Floor(V);
-		const int32 NX = FMath::CeilToInt32(U);
-		const int32 NY = FMath::CeilToInt32(V);
+		const int32 NX = FMath::CeilToInt(U);
+		const int32 NY = FMath::CeilToInt(V);
 
 		const FLinearColor& V1 = FMath::BiLerp(
 			InData[
@@ -447,8 +450,8 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 	{
 		const int32 OX = FMath::Floor(U);
 		const int32 OY = FMath::Floor(V);
-		const int32 NX = FMath::CeilToInt32(U);
-		const int32 NY = FMath::CeilToInt32(V);
+		const int32 NX = FMath::CeilToInt(U);
+		const int32 NY = FMath::CeilToInt(V);
 
 		const float& V1 = FMath::BiLerp(
 			InData[
@@ -560,7 +563,7 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 
 					if (FoliageType->Density > 1.f)
 					{
-						int32 NumBetweenPixels = FMath::RoundToInt32(FoliageType->Density);
+						int32 NumBetweenPixels = FMath::RoundToInt(FoliageType->Density);
 						for (int32 OffsetX = 0; OffsetX < NumBetweenPixels; ++OffsetX)
 						{
 							for (int32 OffsetY = 0; OffsetY < NumBetweenPixels; ++OffsetY)
@@ -627,7 +630,7 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 					}
 					else
 					{
-						int32 NumBetweenPixels = FMath::RoundToInt32(1.f / FoliageType->Density);
+						int32 NumBetweenPixels = FMath::RoundToInt(1.f / FoliageType->Density);
 						if ((x % NumBetweenPixels) == 0 && (y % NumBetweenPixels) == 0)
 						{
 							float Depth = 0.f;
@@ -771,8 +774,9 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 						Parent->EnqueueFoliageTickTask(
 							[ChunkedTransforms = MoveTemp(ChunkedTransforms), HISM]()
 							{
+								// TODO: transform to world position
 								HISM->AddInstances(
-									ChunkedTransforms, false, true
+									ChunkedTransforms, false
 								);
 							}
 						);
@@ -782,8 +786,9 @@ void UFoliageCaptureComponent::Compute_Internal(const TArray<FLinearColor>& Scen
 				{
 					Parent->EnqueueFoliageTickTask([HISM, Transforms]()
 					{
+							// TODO: Transform to world position
 						HISM->AddInstances(
-							Transforms, false, true
+							Transforms, false
 						);
 					});
 				}

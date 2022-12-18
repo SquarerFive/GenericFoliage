@@ -8,9 +8,12 @@
 #include "Actors/Components/FoliageInstancedMeshPool.h"
 #include "Async/Async.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
-#include "GeometryScript/MeshSpatialFunctions.h"
+
 #include "Kismet/KismetMathLibrary.h"
+/*
 #include "Spatial/MeshAABBTree3.h"
+#include "GeometryScript/MeshSpatialFunctions.h"
+*/
 
 
 class FClusterFoliageSpawnerThread : public FRunnable
@@ -42,14 +45,120 @@ public:
 		}
 
 		const FSpatialFeature Feature = ClusterFoliageActor->GetFeatureById(FeatureId);
+
 		TMap<FGuid, TArray<FTransform>> FoliageTransforms;
 
 		const bool bEstimationTransform = ClusterFoliageActor->bEstimationTransform; 
 
+		auto Bounds2d = Feature.Polygon.Bounds();
+
+		const double Width = Bounds2d.Width();
+		const double Height = Bounds2d.Height();
+
+		for (const auto Type : ClusterFoliageActor->Collection->Collection[Feature.Type].FoliageTypes)
+		{
+
+			TArray<FVector2d> Points;
+
+			if (bEstimationTransform)
+			{
+				// Estimate our cell size based on the radius in metres
+				FVector2d Delta = USpatialLibrary::HaversineDeltaDegrees(
+					Bounds2d.Min, (double)Type->Density
+				);
+
+				Points = USamplerLibrary::PoissonDiscSampling(
+					FMath::Abs(Delta.Length()),
+					FVector2d(Width, Height),
+					30,
+					{
+						true,
+						Bounds2d.Min,
+						Type->Density
+					}
+				);
+			}
+			else
+			{
+				Points = USamplerLibrary::PoissonDiscSampling(
+					Type->Density,
+					FVector2D(Width, Height),
+					30,
+					{
+						false,
+					}
+				);
+			}
+
+			for (FVector2d& Point : Points)
+			{
+				Point += Bounds2d.Min;
+			}
+
+			// UE_LOG(LogGenericFoliage, Display, TEXT("Point + Bounds Min: %s"), *Points[0].ToString());
+
+			if (!IsValid(ClusterFoliageActor)) { return 1; }
+
+			TArray<FVector2D> FilteredPoints;
+			TArray<FTransform> PointsWorld;
+
+			for (const FVector2d& Point : Points)
+			{
+				FVector Normal = FVector(0, 0, 0);
+				const float Altitude = ClusterFoliageActor->GetTerrainBaseHeight(
+					FVector(Point.X, Point.Y, 0), Normal);
+
+				bool bInside = Feature.Polygon.Contains(Point);
+
+				if (!bInside)
+				{
+					continue;
+				}
+
+				FVector EngineLocation = ClusterFoliageActor->GeographicToEngineLocation(
+					FVector(Point.X, Point.Y, Altitude)) +
+					Type->GetRandomLocalOffset();
+
+				FVector UpVector = ClusterFoliageActor->GetUpVectorFromEngineLocation(EngineLocation);
+				FRotator RotationAtPoint = Type->bAlignToSurfaceNormal
+					? Normal.Rotation()
+					: UKismetMathLibrary::MakeRotFromZ(UpVector);
+
+				const double Angle = FMath::RadiansToDegrees(FMath::Acos(
+					Normal | UpVector
+				));
+
+				if (Angle > Type->SlopeAngleThreshold)
+				{
+					continue;
+				}
+
+				if (Type->bEnableRandomRotation)
+				{
+					RotationAtPoint = (Type->GetRandomRotator().Quaternion() * RotationAtPoint.Quaternion()).
+						Rotator();
+				}
+
+				FTransform Transform;
+				Transform.SetLocation(
+					EngineLocation
+				);
+				Transform.SetScale3D(Type->GetRandomScale());
+				Transform.SetRotation(RotationAtPoint.Quaternion());
+
+				PointsWorld.Emplace(MoveTemp(Transform));
+			}
+
+			FoliageTransforms.Emplace(Type->GetGuid(), MoveTemp(PointsWorld));
+		}
+
+
+
+		/*
 		Feature.Geometry->ProcessMesh([&](const FDynamicMesh3& Mesh)
 		{
 			const auto Bounds = Mesh.GetBounds();
-			const auto Bounds2d = FBox2d(FVector2D(Bounds.Min.X, Bounds.Min.Y), FVector2D(Bounds.Max.X, Bounds.Max.Y));
+			const auto Bounds2d = FBox2D(FVector2D(Bounds.Min.X, Bounds.Min.Y), FVector2D(Bounds.Max.X, Bounds.Max.Y));
 			const double Width = Bounds.Width();
 			const double Height = Bounds.Height();
 
@@ -97,14 +206,15 @@ public:
 				TArray<FVector2D> FilteredPoints;
 				TArray<FTransform> PointsWorld;
 
-				for (const FVector2d& Point : Points)
+				for (const FVector2D& Point : Points)
 				{
-					FVector Normal = FVector::Zero();
-					const double Altitude = ClusterFoliageActor->GetTerrainBaseHeight(
+					FVector Normal = FVector(0, 0, 0);
+					const float Altitude = ClusterFoliageActor->GetTerrainBaseHeight(
 						FVector(Point.X, Point.Y, 0), Normal);
 
 					bool bInside = false;
 
+					
 					TEnumAsByte<EGeometryScriptContainmentOutcomePins> Outcome;
 
 					// Filter out points which don't intersect the geometry
@@ -149,11 +259,13 @@ public:
 					Transform.SetRotation(RotationAtPoint.Quaternion());
 
 					PointsWorld.Emplace(MoveTemp(Transform));
+					
 				}
 
 				FoliageTransforms.Emplace(Type->GetGuid(), MoveTemp(PointsWorld));
 			}
 		});
+		*/
 
 		AsyncTask(ENamedThreads::GameThread,
 		          [Callback = this->Callback, FeatureId = this->FeatureId, FoliageTransforms]()
@@ -196,7 +308,6 @@ AClusterFoliageActor::AClusterFoliageActor()
 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
 
-	MeshPool = CreateDefaultSubobject<UDynamicMeshPool>("MeshPool", true);
 	InstancedMeshPool = CreateDefaultSubobject<UFoliageInstancedMeshPool>("InstancedMeshPool", true);
 }
 
@@ -294,22 +405,14 @@ void AClusterFoliageActor::LoadGeoJSON(const FString& Data)
 		return;
 	}
 
-	for (auto DMC : MeshComponents)
-	{
-		DMC->DestroyComponent();
-	}
-	MeshComponents.Empty();
 
-	MeshPool->ReturnAllMeshes();
-
-	Features = USpatialLibrary::ParseGeoJSON(Data, MeshPool);
+	Features = USpatialLibrary::ParseGeoJSON(Data);
 
 	SetupInstancedMeshPool();
 
 	for (FSpatialFeature& Feature : Features)
 	{
-		if (!IsValid(Feature.Geometry))
-		{
+		if (!(Feature.Polygon.VertexCount() > 3)) {
 			continue;
 		}
 
@@ -328,10 +431,13 @@ void AClusterFoliageActor::LoadGeoJSON(const FString& Data)
 					Threads.Remove(FeatureId);
 					for (auto& Pair : InstancesMap)
 					{
+						TArray<FTransform> WorldTransforms;
+						for (const FTransform& Transform : Pair.Value) {
+							WorldTransforms.Add(Transform.GetRelativeTransform(InstancedMeshPool->HISMPool[Pair.Key]->GetComponentTransform()));
+						}
 						InstancedMeshPool->HISMPool[Pair.Key]->AddInstances(
 							Pair.Value,
-							false,
-							true
+							false
 						);
 					}
 				}
@@ -340,6 +446,7 @@ void AClusterFoliageActor::LoadGeoJSON(const FString& Data)
 
 		if (bShowBoundary)
 		{
+			/*
 			UDynamicMesh* VisualMesh = MeshPool->RequestMesh();
 			VisualMesh->Reset();
 
@@ -379,6 +486,7 @@ void AClusterFoliageActor::LoadGeoJSON(const FString& Data)
 			}
 
 			MeshComponents.Add(DMC);
+			*/
 		}
 	}
 }

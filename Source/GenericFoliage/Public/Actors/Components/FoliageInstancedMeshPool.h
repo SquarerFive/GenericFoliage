@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Foliage/GenericFoliageType.h"
+#include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "FoliageInstancedMeshPool.generated.h"
 
 
